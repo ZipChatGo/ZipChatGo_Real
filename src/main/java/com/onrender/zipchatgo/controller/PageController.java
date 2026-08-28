@@ -43,4 +43,54 @@ public class PageController {
     public String marketTrend() {
         return "market/trend";
     }
+
+    @GetMapping("/market/sale")
+    public String marketSale() {
+        return "market/sale";
+    }
+
+    @GetMapping("/market/jeonse")
+    public String marketJeonse() {
+        return "market/jeonse";
+    }
+
+    @GetMapping("/market/volume")
+    public String marketVolume() {
+        return "market/volume";
+    }
+
+    @GetMapping("/market/region")
+    public String marketRegion() {
+        return "market/region";
+    }
+
+    @GetMapping("/market/region-flow")
+    public String marketRegionFlow() {
+        return "market/region-flow";
+    }
+
+    @GetMapping("/market/rate")
+    public String marketRate() {
+        return "market/rate";
+    }
+
+    @GetMapping("/market/school")
+    public String marketSchool() {
+        return "market/school";
+    }
+
+    @GetMapping("/market/traffic")
+    public String marketTraffic() {
+        return "market/traffic";
+    }
+
+    @GetMapping("/market/cost")
+    public String marketCost() {
+        return "market/cost";
+    }
+
+    @GetMapping("/market/ai-report")
+    public String marketAiReport() {
+        return "market/ai-report";
+    }
 }
