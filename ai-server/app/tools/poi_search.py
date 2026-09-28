@@ -8,6 +8,9 @@ from app.config import safe_search_log, search_diagnostics_enabled
 from app.schemas import PoiSearchArguments, PoiSearchResult
 
 
+POI_SEARCH_TIMEOUT_SECONDS = 30.0
+
+
 class PoiSearchError(RuntimeError):
     """Raised when the Spring POI search API cannot provide a valid result."""
 
@@ -20,7 +23,7 @@ class PoiSearchTool:
     ) -> None:
         self._client = client or httpx.Client(
             base_url=spring_base_url.rstrip("/"),
-            timeout=10.0,
+            timeout=POI_SEARCH_TIMEOUT_SECONDS,
         )
 
     def search(self, raw_arguments: dict[str, Any]) -> dict[str, Any]:
