@@ -18,8 +18,8 @@ Docker Hub에 애플리케이션 이미지를 올리거나 GitHub Actions/AWS EC
 
 로컬 개발 기본값은 바뀌지 않는다.
 
-- Spring: `http://127.0.0.1:8080`
-- FastAPI: `http://127.0.0.1:8000`
+- Spring: `http://localhost:8080`
+- FastAPI: `http://localhost:8000`
 - 로컬에서 `INTERNAL_API_KEY`가 비어 있으면 내부 키 검증은 비활성화된다.
 - 로컬 FastAPI 문서는 기본적으로 `/docs`, `/redoc`, `/openapi.json`에서 활성화된다.
 
