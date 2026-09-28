@@ -1116,6 +1116,7 @@ class OpenAIProvider:
             running_input.extend(response.output)
             for function_call in function_calls:
                 post_tool_instruction = None
+                poi_search_trace = None
                 if function_call.name == "search_properties" and search_properties:
                     arguments = json.loads(function_call.arguments)
                     search_trace = f"{id(arguments):x}"
@@ -1243,6 +1244,17 @@ class OpenAIProvider:
                         )
                 elif function_call.name == "search_poi" and search_poi:
                     arguments = json.loads(function_call.arguments)
+                    poi_search_trace = f"{id(arguments):x}"
+                    if search_diagnostics_enabled():
+                        logging.getLogger("uvicorn.error").info(
+                            "[poi-search:%s] message=%s selected_region=%s llm_arguments=%s",
+                            poi_search_trace,
+                            safe_search_log(message),
+                            safe_search_log(
+                                app_state.get("selected_region") if app_state else None
+                            ),
+                            safe_search_log(arguments),
+                        )
                     location_source = arguments.pop("location_source", None)
                     arguments.pop("legal_dong_code", None)
                     coordinates = None
@@ -1295,6 +1307,12 @@ class OpenAIProvider:
                             arguments["lat"], arguments["lng"] = coordinates
                             arguments["region"] = None
                             arguments.pop("legal_dong_code", None)
+                        if search_diagnostics_enabled():
+                            logging.getLogger("uvicorn.error").info(
+                                "[poi-search:%s] provider_arguments=%s",
+                                poi_search_trace,
+                                safe_search_log(arguments),
+                            )
                         result = search_poi(arguments)
                         valid_pois = [
                             poi for poi in result.get("pois", [])
@@ -1511,6 +1529,18 @@ class OpenAIProvider:
                         if action not in actions:
                             actions.append(action)
                         result = {"status": "accepted"}
+                if (
+                    function_call.name == "search_poi"
+                    and search_diagnostics_enabled()
+                ):
+                    pois = result.get("pois") if isinstance(result, dict) else None
+                    logging.getLogger("uvicorn.error").info(
+                        "[poi-search:%s] tool_output iteration=%s tool=%s result_count=%s",
+                        poi_search_trace,
+                        iteration,
+                        function_call.name,
+                        len(pois) if isinstance(pois, list) else 0,
+                    )
                 running_input.append(
                     {
                         "type": "function_call_output",
