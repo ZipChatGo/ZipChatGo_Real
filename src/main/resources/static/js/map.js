@@ -18,6 +18,8 @@ let renderTimer = null;
 
 let allPois = [];
 let poiIndexes = new Map();
+const loadedPoiCategories = new Set();
+const poiCategoryLoadPromises = new Map();
 let poiMarkerMap = new Map();
 let aiPoiHighlightMarkerMap = new Map();
 let highlightedPoiIds = new Set();
@@ -165,7 +167,7 @@ window.zipchatgoMapActions = Object.freeze({
   execute: executeAiMapActions
 });
 
-const poiDataReady = loadPois();
+const poiDataReady = Promise.resolve();
 
 function getAiAppState() {
   const center = map.getCenter();
@@ -329,44 +331,64 @@ async function loadProperties() {
   }
 }
 
-async function loadPois() {
-  try {
-    const res = await fetch("/api/map/pois");
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    reportFallbackDataSource(res, "주변 시설");
-    const data = await res.json();
-
-    allPois = data
-      .map(item => ({
-        ...item,
-        poi_id: String(item.poi_id),
-        latitude: Number(item.latitude),
-        longitude: Number(item.longitude)
-      }))
-      .filter(item => (
-        POI_CATEGORY_CONFIG[item.category] &&
-        Number.isFinite(item.latitude) &&
-        Number.isFinite(item.longitude)
-      ));
-
-    document.querySelectorAll(".poi-toggle").forEach(button => {
-      const category = button.dataset.poiCategory;
-      const count = allPois.filter(item => item.category === category).length;
-      button.title = `${POI_CATEGORY_CONFIG[category].label} 시설 ${count.toLocaleString()}개`;
-    });
-
-    if (selectedProperty) {
-      renderPropertyDetail(selectedProperty);
-    }
-
-    if (activePoiCategories.size) {
-      rebuildPoiIndex();
-      scheduleRender();
-    }
-  } catch (err) {
-    console.error("POI 데이터 로드 실패:", err);
-    reportMapDataError("주변 시설 데이터를 불러오지 못했습니다.");
+async function loadPoiCategory(category) {
+  if (!POI_CATEGORY_CONFIG[category]) return false;
+  if (loadedPoiCategories.has(category)) return true;
+  if (poiCategoryLoadPromises.has(category)) {
+    return poiCategoryLoadPromises.get(category);
   }
+
+  const loadPromise = (async () => {
+    try {
+      const res = await fetch(`/api/map/pois?category=${encodeURIComponent(category)}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      reportFallbackDataSource(res, "주변 시설");
+      const data = await res.json();
+
+      const categoryPois = data
+        .map(item => ({
+          ...item,
+          poi_id: String(item.poi_id),
+          latitude: Number(item.latitude),
+          longitude: Number(item.longitude)
+        }))
+        .filter(item => (
+          item.category === category &&
+          Number.isFinite(item.latitude) &&
+          Number.isFinite(item.longitude)
+        ));
+
+      allPois = allPois
+        .filter(item => item.category !== category)
+        .concat(categoryPois);
+      loadedPoiCategories.add(category);
+
+      const button = [...document.querySelectorAll(".poi-toggle")]
+        .find(item => item.dataset.poiCategory === category);
+      if (button) {
+        button.title = `${POI_CATEGORY_CONFIG[category].label} 시설 ${categoryPois.length.toLocaleString()}개`;
+      }
+
+      if (selectedProperty) {
+        renderPropertyDetail(selectedProperty);
+      }
+
+      if (activePoiCategories.has(category)) {
+        rebuildPoiIndex();
+        scheduleRender();
+      }
+      return true;
+    } catch (err) {
+      console.error("POI 데이터 로드 실패:", err);
+      reportMapDataError("주변 시설 데이터를 불러오지 못했습니다.");
+      return false;
+    } finally {
+      poiCategoryLoadPromises.delete(category);
+    }
+  })();
+
+  poiCategoryLoadPromises.set(category, loadPromise);
+  return loadPromise;
 }
 
 function reportMapDataError(message) {
@@ -681,8 +703,9 @@ function getPoiMarkerConfig(category, variant) {
     : categoryConfig;
 }
 
-function togglePoiCategory(button) {
+async function togglePoiCategory(button) {
   const category = button.dataset.poiCategory;
+  if (!activePoiCategories.has(category) && !await loadPoiCategory(category)) return;
   setPoiCategory(category, !activePoiCategories.has(category));
 }
 
@@ -1619,6 +1642,12 @@ async function executeAiMapActions(actions) {
   if (!mapActions.length) return;
 
   await Promise.all([propertyDataReady, legalDongDataReady, poiDataReady]);
+
+  const poiCategoriesToLoad = [...new Set(mapActions
+    .filter(action => action?.type === "SET_POI_CATEGORY" && action.enabled === true)
+    .map(action => action.category)
+    .filter(category => POI_CATEGORY_CONFIG[category]))];
+  await Promise.all(poiCategoriesToLoad.map(loadPoiCategory));
 
   mapActions.forEach(action => {
     if (!action || typeof action.type !== "string") return;

@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
@@ -18,6 +19,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
+import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import tools.jackson.databind.ObjectMapper;
@@ -273,6 +275,38 @@ class MapDataServiceTests {
         assertThat(service.getMapPois().data())
                 .extracting(poi -> poi.get("poi_id"))
                 .contains(searchedId);
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
+    void loadsOnlyRequestedPoiCategoryForMapToggle() {
+        when(jdbcTemplate.query(anyString(), any(RowMapper.class), any(Object[].class)))
+                .thenReturn(List.of(
+                        poi("S1", "학교", "교육", "학교", "분당구", 37.37, 127.11)));
+
+        MapDataService.MapDataResult result = service.getMapPois("교육");
+
+        assertThat(result.source()).isEqualTo(MapDataService.MapDataSource.TIDB);
+        assertThat(result.data()).extracting(item -> item.get("category"))
+                .containsOnly("교육");
+        verify(jdbcTemplate).query(
+                argThat((String sql) -> sql.contains("WHERE category = ?")),
+                any(RowMapper.class),
+                eq("교육"));
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
+    void loadsPoiFallbackOnlyAfterCategoryQueryFails() {
+        when(jdbcTemplate.query(anyString(), any(RowMapper.class), any(Object[].class)))
+                .thenThrow(new DataAccessResourceFailureException("test failure"));
+
+        MapDataService.MapDataResult result = service.getMapPois("교육");
+
+        assertThat(result.source()).isEqualTo(MapDataService.MapDataSource.FALLBACK_JSON);
+        assertThat(result.data()).isNotEmpty();
+        assertThat(result.data()).extracting(item -> item.get("category"))
+                .containsOnly("교육");
     }
 
     private Map<String, Object> property(
