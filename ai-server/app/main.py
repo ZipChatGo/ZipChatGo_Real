@@ -158,6 +158,7 @@ def agent_chat(
             message=result.message,
             actions=result.actions,
             recent_context=result.recent_context,
+            property_search_mode=result.property_search_mode,
         )
     except APIError as exception:
         raise HTTPException(

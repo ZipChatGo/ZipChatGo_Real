@@ -943,6 +943,7 @@ class OpenAIProvider:
         searched_stations: list[dict[str, Any]] = []
         law_search_attempted = False
         law_search_results: list[dict[str, Any]] = []
+        executed_property_search_mode: str | None = None
         station_search_allowed = "역" in message
         required_region_name = _find_legal_dong_map_request(message)
         required_adjacency_region = _find_legal_dong_adjacency_request(
@@ -1111,6 +1112,7 @@ class OpenAIProvider:
                         last_referenced_property_id=last_referenced_property_id,
                         recent_properties=next_recent_properties,
                     ),
+                    property_search_mode=executed_property_search_mode,
                 )
 
             running_input.extend(response.output)
@@ -1157,10 +1159,11 @@ class OpenAIProvider:
                             and selected_region.get("type") == "legal_dong"
                         ):
                             arguments["legal_dong_code"] = selected_region.get("code")
-                    elif not arguments.get("keyword") and isinstance(selected_region, dict):
+                    elif isinstance(selected_region, dict):
                         legal_dong_code = selected_region.get("code")
                         if selected_region.get("type") == "legal_dong" and legal_dong_code:
                             arguments["legal_dong_code"] = legal_dong_code
+                            arguments.pop("map_bounds", None)
                     elif not arguments.get("keyword") and app_state and app_state.get("map_bounds"):
                         arguments["map_bounds"] = app_state["map_bounds"]
                     if (
@@ -1179,6 +1182,7 @@ class OpenAIProvider:
                                 safe_search_log(arguments),
                             )
                         result = search_properties(arguments)
+                        executed_property_search_mode = search_mode
                         post_tool_instruction = (
                             "매물 가격을 답변할 때는 각 결과의 sale_price_display를 그대로 복사하세요. "
                             "sale_price 숫자를 억/만원으로 직접 환산하지 마세요."

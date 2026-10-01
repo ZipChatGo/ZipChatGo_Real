@@ -271,7 +271,14 @@
       addHistoryMessage("assistant", data.message);
 
       try {
+        const isGeneralPropertySearch = data.property_search_mode === "properties";
+        if (isGeneralPropertySearch) {
+          window.zipchatgoMapActions?.resetManualPropertySearch?.({ renderResults: false });
+        }
         await window.zipchatgoMapActions?.execute?.(actions);
+        if (isGeneralPropertySearch) {
+          window.zipchatgoMapActions?.refreshPropertyMap?.();
+        }
       } catch (actionError) {
         console.error("AI 지도 Action을 실행하지 못했습니다.", actionError);
       }

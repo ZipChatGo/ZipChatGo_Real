@@ -211,6 +211,9 @@ class ChatResponse(BaseModel):
     message: str
     actions: list[UiAction] = Field(default_factory=list)
     recent_context: RecentContext = Field(default_factory=RecentContext)
+    property_search_mode: Literal[
+        "properties", "transactions", "selected_building_transactions"
+    ] | None = None
 
 
 class PropertySearchArguments(BaseModel):
