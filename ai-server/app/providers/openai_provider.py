@@ -12,6 +12,7 @@ from app.config import safe_search_log, search_diagnostics_enabled
 from app.providers.llm_provider import AgentReply, ToolHandler
 from app.schemas import (
     AddFavoriteAction,
+    BUNDANG_LEGAL_DONG_CODE_BY_NAME,
     BUNDANG_LEGAL_DONG_NAME_VALUES,
     ClearPoiHighlightsAction,
     FitBoundsAction,
@@ -40,6 +41,16 @@ SEARCH_PROPERTIES_TOOL = {
     "parameters": {
         "type": "object",
         "properties": {
+            "region_name": {
+                "type": ["string", "null"],
+                "enum": [*BUNDANG_LEGAL_DONG_NAME_VALUES, None],
+                "description": (
+                    "사용자가 이번 요청에서 명시한 분당구 법정동 이름입니다. "
+                    "예: 판교는 판교동. '현재 지역', '선택 지역'처럼 App State 지역을 "
+                    "참조하거나 역·단지·주소를 말한 경우에는 null입니다. region_name을 "
+                    "사용할 때 keyword는 별도의 단지명이나 주소 조건이 있을 때만 설정합니다."
+                ),
+            },
             "keyword": {
                 "type": ["string", "null"],
                 "description": "지역, 역명, 단지명 또는 주소 검색어. 조건이 없으면 null입니다.",
@@ -89,7 +100,7 @@ SEARCH_PROPERTIES_TOOL = {
             },
         },
         "required": [
-            "keyword", "property_type", "max_price", "search_mode",
+            "region_name", "keyword", "property_type", "max_price", "search_mode",
             "exact_building_name", "exclusive_area", "limit", "sort_by", "sort_order"
         ],
         "additionalProperties": False,
@@ -1128,6 +1139,10 @@ class OpenAIProvider:
                 poi_search_trace = None
                 if function_call.name == "search_properties" and search_properties:
                     arguments = json.loads(function_call.arguments)
+                    explicit_region_name = arguments.pop("region_name", None)
+                    explicit_region_code = BUNDANG_LEGAL_DONG_CODE_BY_NAME.get(
+                        explicit_region_name
+                    )
                     search_trace = f"{id(arguments):x}"
                     if search_diagnostics_enabled():
                         filters = app_state.get("filters") if app_state else None
@@ -1159,6 +1174,8 @@ class OpenAIProvider:
                             arguments.pop("legal_dong_code", None)
                             if not selected_property_state_mismatch and selected_property_id is not None:
                                 arguments["selected_property_id"] = selected_property_id
+                        elif explicit_region_code:
+                            arguments["legal_dong_code"] = explicit_region_code
                         elif (
                             not arguments.get("exact_building_name")
                             and not arguments.get("keyword")
@@ -1166,6 +1183,9 @@ class OpenAIProvider:
                             and selected_region.get("type") == "legal_dong"
                         ):
                             arguments["legal_dong_code"] = selected_region.get("code")
+                    elif explicit_region_code:
+                        arguments["legal_dong_code"] = explicit_region_code
+                        arguments.pop("map_bounds", None)
                     elif isinstance(selected_region, dict):
                         legal_dong_code = selected_region.get("code")
                         if selected_region.get("type") == "legal_dong" and legal_dong_code:

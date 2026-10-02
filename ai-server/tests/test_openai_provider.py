@@ -1235,7 +1235,12 @@ def test_generate_prioritizes_selected_legal_dong_over_current_bounds() -> None:
         type="function_call",
         name="search_properties",
         arguments=json.dumps(
-            {"keyword": "판교동", "property_type": "아파트", "max_price": None}
+            {
+                "region_name": None,
+                "keyword": None,
+                "property_type": "아파트",
+                "max_price": None,
+            }
         ),
         call_id="search-selected-dong",
     )
@@ -1277,9 +1282,68 @@ def test_generate_prioritizes_selected_legal_dong_over_current_bounds() -> None:
 
     search_properties.assert_called_once_with(
         {
-            "keyword": "판교동",
+            "keyword": None,
             "property_type": "아파트",
             "max_price": None,
+            "legal_dong_code": "41135108",
+        }
+    )
+
+
+def test_generate_prioritizes_explicit_region_over_selected_region() -> None:
+    client = Mock()
+    search_call = SimpleNamespace(
+        type="function_call",
+        name="search_properties",
+        arguments=json.dumps(
+            {
+                "region_name": "판교동",
+                "keyword": None,
+                "property_type": "아파트",
+                "max_price": None,
+                "limit": 3,
+                "sort_by": "sale_price",
+                "sort_order": "asc",
+            }
+        ),
+        call_id="search-explicit-dong",
+    )
+    client.responses.create.side_effect = [
+        SimpleNamespace(output=[search_call], output_text=""),
+        SimpleNamespace(output=[], output_text="판교동에서 검색했습니다."),
+    ]
+    search_properties = Mock(return_value={"total_count": 0, "properties": []})
+    app_state = {
+        "current_page": "map",
+        "selected_region": {
+            "type": "legal_dong",
+            "code": "41135105",
+            "name": "서현동",
+        },
+        "map_bounds": {
+            "south": 37.3,
+            "west": 127.0,
+            "north": 37.5,
+            "east": 127.3,
+        },
+    }
+
+    with patch("app.providers.openai_provider.OpenAI", return_value=client):
+        provider = OpenAIProvider("test-key", "test-model", "instructions")
+        provider.generate(
+            "판교에서 가장 싼 아파트 3개만 찾아줘",
+            app_state=app_state,
+            search_properties=search_properties,
+        )
+
+    search_properties.assert_called_once_with(
+        {
+            "keyword": None,
+            "property_type": "아파트",
+            "max_price": None,
+            "limit": 3,
+            "sort_by": "sale_price",
+            "sort_order": "asc",
             "legal_dong_code": "41135108",
         }
     )
