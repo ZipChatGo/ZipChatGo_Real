@@ -30,6 +30,12 @@ public class PageController {
         return "member/auth";
     }
 
+    // 계정 설정(탈퇴) - 비로그인/게스트 처리는 페이지 스크립트가 /api/auth/me 로 판단
+    @GetMapping("/account")
+    public String account() {
+        return "member/account";
+    }
+
     @GetMapping("/member/signup")
     public String signup(Model model) {
         model.addAttribute("defaultTab", "signup");
@@ -40,11 +46,6 @@ public class PageController {
     public String joinAlias(Model model) {
         model.addAttribute("defaultTab", "signup");
         return "member/auth";
-    }
-
-    @GetMapping("/favorite")
-    public String favorite() {
-        return "favorite/favorite";
     }
 
     // /property/map 은 map.MapPageController 로 이관됨(중복 정의 방지)
