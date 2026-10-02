@@ -885,7 +885,14 @@ class OpenAIProvider:
             )
         context_items: list[dict[str, str]] = []
         if app_state is not None:
-            state_json = json.dumps(app_state, ensure_ascii=False, separators=(",", ":"))
+            contextual_app_state = {
+                key: value for key, value in app_state.items() if key != "filters"
+            }
+            state_json = json.dumps(
+                contextual_app_state,
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
             context_items.append({
                 "role": "developer",
                 "content": (

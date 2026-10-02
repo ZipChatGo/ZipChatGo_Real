@@ -36,6 +36,11 @@ def test_generate_sends_app_state_as_developer_context() -> None:
         "current_page": "map",
         "map_center": {"lat": 37.4, "lng": 127.15},
         "selected_property_id": "427",
+        "filters": {
+            "keyword": None,
+            "property_type": None,
+            "max_price": 1_500_000_000,
+        },
     }
 
     with patch("app.providers.openai_provider.OpenAI", return_value=client):
@@ -44,12 +49,21 @@ def test_generate_sends_app_state_as_developer_context() -> None:
             model="test-model",
             instructions="공인중개사 상담 원칙",
         )
-        result = provider.generate("현재 선택한 매물이 뭐야?", app_state)
+        result = provider.generate("현재 지도 기준으로 상담해줘.", app_state)
 
     input_items = client.responses.create.call_args.kwargs["input"]
     assert input_items[0]["role"] == "developer"
-    assert json.dumps(app_state, ensure_ascii=False, separators=(",", ":")) in input_items[0]["content"]
-    assert input_items[1] == {"role": "user", "content": "현재 선택한 매물이 뭐야?"}
+    contextual_app_state = {
+        key: value for key, value in app_state.items() if key != "filters"
+    }
+    assert json.dumps(
+        contextual_app_state,
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ) in input_items[0]["content"]
+    assert '"filters"' not in input_items[0]["content"]
+    assert "1500000000" not in input_items[0]["content"]
+    assert input_items[1] == {"role": "user", "content": "현재 지도 기준으로 상담해줘."}
     assert result.message == "현재 지도 기준 상담 답변"
     assert result.actions == []
 
