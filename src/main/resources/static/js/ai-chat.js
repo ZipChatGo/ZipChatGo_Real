@@ -12,6 +12,7 @@
   if (!panel || !launcher || !closeButton || !resetButton || !messages || !form || !input || !sendButton) return;
 
   let waitingForResponse = false;
+  const PENDING_AI_QUESTION_KEY = "zipchatgo.pendingAiQuestion";
   const HISTORY_MAX_MESSAGES = 8;
   const HISTORY_MAX_CHARACTERS = 8000;
   let conversationHistory = [];
@@ -305,6 +306,20 @@
     requestAgentResponse(text);
   }
 
+  function submitPendingQuestion() {
+    const pendingQuestion = sessionStorage.getItem(PENDING_AI_QUESTION_KEY);
+    if (pendingQuestion === null) return;
+
+    sessionStorage.removeItem(PENDING_AI_QUESTION_KEY);
+    const question = pendingQuestion.trim();
+    if (!question) return;
+
+    setPanelOpen(true);
+    input.value = question;
+    syncInput();
+    form.requestSubmit();
+  }
+
   launcher.addEventListener("click", () => setPanelOpen(true));
   closeButton.addEventListener("click", () => setPanelOpen(false));
   resetButton.addEventListener("click", resetConversation);
@@ -329,4 +344,5 @@
 
   renderBrandIcons();
   syncInput();
+  submitPendingQuestion();
 })();
