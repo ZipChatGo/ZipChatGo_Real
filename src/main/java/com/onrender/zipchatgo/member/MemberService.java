@@ -85,6 +85,43 @@ public class MemberService {
     }
 
     /**
+     * 비밀번호 재설정 (시연용 간이) - 이메일 + 이름이 일치하면 새 비밀번호로 변경
+     * 소셜 계정(비밀번호 없음)과 관리자(ADMIN)는 재설정 불가
+     */
+    @Transactional
+    public void resetPassword(String email, String name, String newPassword) {
+        if (email == null || email.isBlank()
+                || name == null || name.isBlank()
+                || newPassword == null || newPassword.isBlank()) {
+            throw new IllegalStateException("이메일, 이름, 새 비밀번호를 모두 입력해주세요.");
+        }
+
+        if (newPassword.length() < 8) {
+            throw new IllegalStateException("비밀번호는 8자 이상이어야 해요.");
+        }
+
+        String notMatch = "일치하는 회원 정보가 없습니다.";
+
+        Member member = memberRepository.findByEmail(email.trim())
+                .orElseThrow(() -> new IllegalStateException(notMatch));
+
+        if (member.getName() == null || !member.getName().trim().equals(name.trim())) {
+            throw new IllegalStateException(notMatch);
+        }
+
+        if (member.getPassword() == null) {
+            throw new IllegalStateException("소셜 로그인으로 가입된 계정이에요. 소셜 로그인을 이용해주세요.");
+        }
+
+        if ("ADMIN".equals(member.getMemberType())) {
+            throw new IllegalStateException("관리자 계정은 비밀번호를 재설정할 수 없어요.");
+        }
+
+        member.setPassword(passwordEncoder.encode(newPassword));
+        memberRepository.save(member);
+    }
+
+    /**
      * 회원 조회 - 없으면 예외
      */
     public Member getMember(Long memberId) {

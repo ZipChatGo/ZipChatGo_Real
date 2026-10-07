@@ -55,6 +55,20 @@
       <form class="auth-form" data-form="login" id="loginForm" novalidate>
         <h1>다시 만나서 반가워요</h1>
         <p class="form-sub">집찾GO 계정으로 로그인하세요.</p>
+        <!-- 시연용 계정 메모 (시연이 끝나면 이 블록을 삭제하세요) -->
+        <div class="demo-memo" style="margin:0 0 22px;padding:14px 16px;border-radius:14px;background:rgba(30,136,255,0.08);border:1px dashed rgba(30,136,255,0.45);font-size:13px;line-height:1.7;color:#1b4f8f;">
+          <strong style="display:block;margin-bottom:6px;"><i class="ti ti-key"></i> 시연용 계정</strong>
+          <div style="margin-bottom:8px;">
+            <div><b>관리자</b> &nbsp;ID : admin@admin.com</div>
+            <div style="padding-left:46px;">비밀번호 : admin1234!</div>
+            <button type="button" style="margin-top:8px;padding:6px 12px;border:1px solid rgba(30,136,255,0.45);border-radius:8px;background:#fff;color:#1E88FF;font-size:12px;font-weight:800;cursor:pointer;" onclick="document.getElementById('loginEmail').value='admin@admin.com';document.getElementById('loginPassword').value='admin1234!';">관리자 자동 입력</button>
+          </div>
+          <div>
+            <div><b>테스터</b> &nbsp;ID : test@test.com</div>
+            <div style="padding-left:46px;">비밀번호 : 12345678</div>
+            <button type="button" style="margin-top:8px;padding:6px 12px;border:1px solid rgba(30,136,255,0.45);border-radius:8px;background:#fff;color:#1E88FF;font-size:12px;font-weight:800;cursor:pointer;" onclick="document.getElementById('loginEmail').value='test@test.com';document.getElementById('loginPassword').value='12345678';">테스터 자동 입력</button>
+          </div>
+        </div>
 
         <div class="field">
           <label for="loginEmail">이메일</label>
@@ -77,7 +91,7 @@
 
         <div class="row-between">
           <label class="remember"><input type="checkbox" id="rememberMe"> 로그인 상태 유지</label>
-          <a href="#" class="forgot-link">비밀번호를 잊으셨나요?</a>
+          <a href="#" class="forgot-link" id="forgotLink">비밀번호를 잊으셨나요?</a>
         </div>
 
         <button type="submit" class="btn-primary">로그인</button>
@@ -95,6 +109,50 @@
         <p class="guest-note">로그인 없이 둘러볼 수 있는 시연용 계정이에요</p>
 
         <p class="switch-line">아직 계정이 없으신가요? <button type="button" data-switch-to="signup">회원가입</button></p>
+      </form>
+
+      <!-- 비밀번호 찾기 폼 (시연용 간이) -->
+      <form class="auth-form" data-form="reset" id="resetForm" novalidate>
+        <h1>비밀번호 찾기</h1>
+        <p class="form-sub">가입한 이메일과 이름을 확인한 뒤 새 비밀번호를 설정해요.</p>
+
+        <div class="field">
+          <label for="resetEmail">이메일</label>
+          <div class="input-group">
+            <i class="ti ti-mail leading"></i>
+            <input type="email" id="resetEmail" placeholder="you@example.com" autocomplete="email">
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="resetName">이름</label>
+          <div class="input-group">
+            <i class="ti ti-user leading"></i>
+            <input type="text" id="resetName" placeholder="가입한 이름을 입력해주세요" autocomplete="name">
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="resetPassword">새 비밀번호</label>
+          <div class="input-group">
+            <i class="ti ti-lock leading"></i>
+            <input type="password" id="resetPassword" placeholder="8자 이상" autocomplete="new-password">
+            <button type="button" class="toggle-visibility" data-target="resetPassword" aria-label="비밀번호 보기"><i class="ti ti-eye"></i></button>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="resetPasswordCheck">새 비밀번호 확인</label>
+          <div class="input-group">
+            <i class="ti ti-lock leading"></i>
+            <input type="password" id="resetPasswordCheck" placeholder="다시 입력해주세요" autocomplete="new-password">
+            <button type="button" class="toggle-visibility" data-target="resetPasswordCheck" aria-label="비밀번호 보기"><i class="ti ti-eye"></i></button>
+          </div>
+        </div>
+
+        <button type="submit" class="btn-primary">비밀번호 변경</button>
+
+        <p class="switch-line"><button type="button" data-switch-to="login">로그인으로 돌아가기</button></p>
       </form>
 
       <!-- 회원가입 폼 -->

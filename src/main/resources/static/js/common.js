@@ -75,11 +75,13 @@ async function updateLoginMenu() {
   if (isGuest) {
     // 게스트 모드는 서버에 물어보지 않고 무조건 로그인된 것으로 처리
     document.body.classList.add("login-active");
+    addAdminMenu(); // 게스트 체험 계정은 관리자 메뉴도 함께 보인다
   } else {
     try {
       const res = await fetch("/api/auth/check");
       const data = await res.json();
       document.body.classList.toggle("login-active", !!data.loggedIn);
+      if (data.loggedIn && data.admin) addAdminMenu(); // 관리자 회원 또는 게스트
       if (data.loggedIn && !data.guest) addAccountMenu();
     } catch (err) {
       // 네트워크 오류 등으로 확인 자체가 안 되면 로그아웃 상태로 취급
@@ -121,6 +123,20 @@ function addAccountMenu() {
     link.href = "/account";
     link.innerHTML = '<i class="ti ti-user-cog"></i> 계정 설정';
     if (location.pathname === "/account") link.classList.add("is-current");
+    btn.parentNode.insertBefore(link, btn);
+  });
+}
+
+/* 관리자 회원 또는 게스트에게만 "관리자" 메뉴(매물 관리 페이지)를 로그아웃 버튼 앞에 추가 */
+function addAdminMenu() {
+  document.querySelectorAll(".logout-btn").forEach(btn => {
+    if (btn.parentNode.querySelector(".admin-menu")) return;
+
+    const link = document.createElement("a");
+    link.className = "user-menu admin-menu";
+    link.href = "/admin/properties";
+    link.innerHTML = '<i class="ti ti-shield-lock"></i> 관리자';
+    if (location.pathname.indexOf("/admin") === 0) link.classList.add("is-current");
     btn.parentNode.insertBefore(link, btn);
   });
 }

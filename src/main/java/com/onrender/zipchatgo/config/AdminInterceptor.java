@@ -12,7 +12,7 @@ import org.springframework.web.servlet.HandlerInterceptor;
 import java.util.Optional;
 
 /**
- * /api/admin/**, /admin/** 경로를 관리자(memberType=ADMIN)만 접근하도록 보호한다.
+ * /api/admin/**, /admin/** 경로를 관리자(memberType=ADMIN)와 게스트 체험 계정만 접근하도록 보호한다.
  * MemberRepository가 필요해서 (일반 페이지 가드인 AuthInterceptor와 달리) Spring Bean으로 등록해서 주입받는다.
  */
 @Component
@@ -20,12 +20,19 @@ import java.util.Optional;
 public class AdminInterceptor implements HandlerInterceptor {
 
     private static final String SESSION_KEY = "loginMemberId";
+    private static final String GUEST_SESSION_KEY = "guest";
 
     private final MemberRepository memberRepository;
 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
         HttpSession session = request.getSession(false);
+
+        // 게스트 체험 계정은 시연용으로 관리자 권한을 함께 가진다 (DB 회원이 아니라 회원 조회 없이 통과)
+        if (session != null && Boolean.TRUE.equals(session.getAttribute(GUEST_SESSION_KEY))) {
+            return true;
+        }
+
         Object memberIdObj = session != null ? session.getAttribute(SESSION_KEY) : null;
 
         if (memberIdObj == null) {

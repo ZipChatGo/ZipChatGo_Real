@@ -3,9 +3,12 @@ package com.onrender.zipchatgo.member;
 import jakarta.servlet.http.HttpSession;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
-
 import java.util.HashMap;
 import java.util.Map;
+import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.ResponseCookie;
+import java.time.Duration;
 
 @RestController
 @RequestMapping("/api/auth")
@@ -24,10 +27,11 @@ public class AuthController {
      * 로그인
      * body: { "email": "...", "password": "..." }
      */
-    @PostMapping("/login")
+        @PostMapping("/login")
     public Map<String, Object> login(
             @RequestBody Map<String, String> body,
-            HttpSession session) {
+            HttpSession session,
+            HttpServletResponse response) {
 
         Map<String, Object> result = new HashMap<>();
 
@@ -42,6 +46,19 @@ public class AuthController {
 
             // 혹시 이전에 게스트 세션이 있었다면 제거
             session.removeAttribute(GUEST_SESSION_KEY);
+
+            // 로그인 상태 유지: 세션 30일 + 영속 쿠키 (체크 안 하면 기본 동작)
+            if ("true".equals(body.get("remember"))) {
+                Duration keep = Duration.ofDays(30);
+                session.setMaxInactiveInterval((int) keep.getSeconds());
+                ResponseCookie cookie = ResponseCookie.from("JSESSIONID", session.getId())
+                        .path("/")
+                        .httpOnly(true)
+                        .sameSite("Lax")
+                        .maxAge(keep)
+                        .build();
+                response.addHeader(HttpHeaders.SET_COOKIE, cookie.toString());
+            }
 
             result.put("success", true);
             result.put("name", member.getName());
@@ -117,6 +134,30 @@ public class AuthController {
     }
 
     /**
+     * 비밀번호 재설정 (시연용 간이: 이메일 + 이름 확인)
+     * body: { "email": "...", "name": "...", "newPassword": "..." }
+     */
+    @PostMapping("/reset-password")
+    public Map<String, Object> resetPassword(@RequestBody Map<String, String> body) {
+
+        Map<String, Object> result = new HashMap<>();
+
+        try {
+            memberService.resetPassword(
+                    body.get("email"),
+                    body.get("name"),
+                    body.get("newPassword")
+            );
+            result.put("success", true);
+        } catch (IllegalStateException e) {
+            result.put("success", false);
+            result.put("message", e.getMessage());
+        }
+
+        return result;
+    }
+
+    /**
      * 로그아웃
      */
     @PostMapping("/logout")
@@ -138,6 +179,8 @@ public class AuthController {
      *
      * 게스트:
      * guest=true이면 로그인 상태
+     *
+     * admin: 관리자 회원 또는 게스트이면 true (헤더의 관리자 메뉴 표시용)
      */
     @GetMapping("/check")
     public Map<String, Object> check(HttpSession session) {
@@ -152,6 +195,17 @@ public class AuthController {
 
         result.put("loggedIn", isMemberLoggedIn || isGuestLoggedIn);
         result.put("guest", isGuestLoggedIn);
+
+        // 관리자 메뉴 표시 여부: 관리자 회원(ADMIN) 또는 게스트 체험 계정
+        boolean isAdmin = isGuestLoggedIn;
+        if (!isAdmin && memberId instanceof Long id) {
+            try {
+                isAdmin = "ADMIN".equals(memberService.getMember(id).getMemberType());
+            } catch (IllegalStateException e) {
+                isAdmin = false;
+            }
+        }
+        result.put("admin", isAdmin);
 
         if (isGuestLoggedIn) {
             result.put("name", "게스트");

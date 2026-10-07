@@ -88,6 +88,12 @@ document.addEventListener('DOMContentLoaded', () => {
       eyebrow: '회원가입',
       title: '몇 분이면 충분해요,<br>지금 시작하는 부동산 여정',
       desc: '일반회원과 공인중개사 모두 집찾GO에서 시작할 수 있어요.'
+    },
+
+    reset: {
+      eyebrow: '비밀번호 찾기',
+      title: '비밀번호를 잊으셨나요?<br>새로 설정해 드릴게요',
+      desc: '가입한 이메일과 이름을 확인하면 바로 변경할 수 있어요.'
     }
   };
 
@@ -362,8 +368,9 @@ document.addEventListener('DOMContentLoaded', () => {
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
-            email: email.value,
-            password: pw.value
+          email: email.value,
+          password: pw.value,
+          remember: document.getElementById('rememberMe').checked
           })
         });
 
@@ -400,6 +407,76 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  /* ==================================================
+     비밀번호 찾기 (시연용 간이)
+     ================================================== */
+
+  const forgotLink = document.getElementById('forgotLink');
+  if (forgotLink) {
+    forgotLink.addEventListener('click', (e) => {
+      e.preventDefault();
+      switchTab('reset');
+    });
+  }
+
+  const resetForm = document.getElementById('resetForm');
+  if (resetForm) {
+    resetForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const rEmail = document.getElementById('resetEmail');
+      const rName = document.getElementById('resetName');
+      const rPw = document.getElementById('resetPassword');
+      const rPwCheck = document.getElementById('resetPasswordCheck');
+
+      if (!validateEmail(rEmail.value.trim())) {
+        showToast('올바른 이메일 형식을 입력해주세요.');
+        return;
+      }
+      if (!rName.value.trim()) {
+        showToast('이름을 입력해주세요.');
+        return;
+      }
+      if (rPw.value.length < 8) {
+        showToast('비밀번호는 8자 이상이어야 해요.');
+        return;
+      }
+      if (rPw.value !== rPwCheck.value) {
+        showToast('비밀번호가 일치하지 않아요.');
+        return;
+      }
+
+      const submitBtn = resetForm.querySelector('button[type="submit"]');
+      if (submitBtn) submitBtn.disabled = true;
+
+      try {
+        const res = await fetch('/api/auth/reset-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: rEmail.value.trim(),
+            name: rName.value.trim(),
+            newPassword: rPw.value
+          })
+        });
+        const data = await res.json();
+
+        if (data.success) {
+          showToast('비밀번호가 변경됐어요. 새 비밀번호로 로그인해주세요.');
+          resetForm.reset();
+          switchTab('login');
+        } else {
+          showToast(data.message || '비밀번호 변경에 실패했어요.');
+        }
+      } catch (err) {
+        console.error(err);
+        showToast('서버에 연결할 수 없어요. 잠시 후 다시 시도해주세요.');
+      } finally {
+        if (submitBtn) submitBtn.disabled = false;
+      }
+    });
+  }
+  
   /* ==================================================
      회원가입
      ================================================== */
