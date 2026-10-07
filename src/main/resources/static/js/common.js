@@ -61,43 +61,82 @@ function initMobileMenu() {
 
 async function updateLoginMenu() {
   const logoutButtons = document.querySelectorAll(".logout-btn");
-  const isGuest = localStorage.getItem("jipchatgoGuestMode") === "true";
 
-  if (isGuest) {
-    // 게스트 모드는 서버에 물어보지 않고 무조건 로그인된 것으로 처리
-    document.body.classList.add("login-active");
-  } else {
-    try {
-      const res = await fetch("/api/auth/check");
-      const data = await res.json();
-      document.body.classList.toggle("login-active", !!data.loggedIn);
-    } catch (err) {
-      // 네트워크 오류 등으로 확인 자체가 안 되면 로그아웃 상태로 취급
-      document.body.classList.remove("login-active");
-    }
-  }
-
+  // 로그아웃 버튼 리스너는 서버 응답을 기다리지 않고 먼저 등록
   logoutButtons.forEach(btn => {
     btn.addEventListener("click", (e) => {
       e.preventDefault();
       handleLogout();
     });
   });
+
+  const isGuest = localStorage.getItem("jipchatgoGuestMode") === "true";
+
+  if (isGuest) {
+    // 게스트 모드는 서버에 물어보지 않고 무조건 로그인된 것으로 처리
+    document.body.classList.add("login-active");
+    addAdminMenu(); // 게스트 체험 계정은 관리자 메뉴도 함께 보인다
+  } else {
+    try {
+      const res = await fetch("/api/auth/check");
+      const data = await res.json();
+      document.body.classList.toggle("login-active", !!data.loggedIn);
+      if (data.loggedIn && data.admin) addAdminMenu(); // 관리자 회원 또는 게스트
+      if (data.loggedIn && !data.guest) addAccountMenu();
+    } catch (err) {
+      // 네트워크 오류 등으로 확인 자체가 안 되면 로그아웃 상태로 취급
+      document.body.classList.remove("login-active");
+    }
+  }
 }
 
 async function handleLogout() {
-  const wasGuest = localStorage.getItem("jipchatgoGuestMode") === "true";
   localStorage.removeItem("jipchatgoGuestMode");
 
-  if (!wasGuest) {
-    try {
-      await fetch("/api/auth/logout", { method: "POST" });
-    } catch (err) {
-      // 서버 로그아웃 요청이 실패해도, 클라이언트 쪽 상태는 로그아웃으로 처리하고 진행
-    }
+  // 게스트도 서버 세션(guest=true)이 있으므로 항상 서버 로그아웃 호출
+  try {
+    await fetch("/api/auth/logout", { method: "POST" });
+  } catch (err) {
+    // 서버 로그아웃 요청이 실패해도, 클라이언트 쪽 상태는 로그아웃으로 처리하고 진행
   }
 
   document.body.classList.remove("login-active");
   alert("로그아웃 되었습니다.");
   location.href = "/";
+}
+
+/* 회원(게스트 제외)에게만 "내 매물", "계정 설정" 메뉴를 로그아웃 버튼 앞에 추가 */
+function addAccountMenu() {
+  document.querySelectorAll(".logout-btn").forEach(btn => {
+    const prev = btn.previousElementSibling;
+    if (prev && prev.classList.contains("account-menu")) return;
+
+    const myLink = document.createElement("a");
+    myLink.className = "user-menu my-property-menu";
+    myLink.href = "/my/properties";
+    myLink.innerHTML = '<i class="ti ti-building-estate"></i> 내 매물';
+    if (location.pathname.indexOf("/my/properties") === 0) myLink.classList.add("is-current");
+    btn.parentNode.insertBefore(myLink, btn);
+
+    const link = document.createElement("a");
+    link.className = "user-menu account-menu";
+    link.href = "/account";
+    link.innerHTML = '<i class="ti ti-user-cog"></i> 계정 설정';
+    if (location.pathname === "/account") link.classList.add("is-current");
+    btn.parentNode.insertBefore(link, btn);
+  });
+}
+
+/* 관리자 회원 또는 게스트에게만 "관리자" 메뉴(매물 관리 페이지)를 로그아웃 버튼 앞에 추가 */
+function addAdminMenu() {
+  document.querySelectorAll(".logout-btn").forEach(btn => {
+    if (btn.parentNode.querySelector(".admin-menu")) return;
+
+    const link = document.createElement("a");
+    link.className = "user-menu admin-menu";
+    link.href = "/admin/properties";
+    link.innerHTML = '<i class="ti ti-shield-lock"></i> 관리자';
+    if (location.pathname.indexOf("/admin") === 0) link.classList.add("is-current");
+    btn.parentNode.insertBefore(link, btn);
+  });
 }

@@ -2,6 +2,8 @@ let map;
 let allProperties = [];
 let filteredProperties = [];
 let selectedProperty = null;
+let selectedPropertyMarker = null;
+let displayedPropertyIds = [];
 let propertyListScrollTop = 0;
 
 let propertyIndex = null;
@@ -10,12 +12,17 @@ let sigunguIndex = null;
 let dongIndex = null;
 
 let markerMap = new Map();
+let aiHighlightMarkerMap = new Map();
 let infoMarker = null;
 let renderTimer = null;
 
 let allPois = [];
 let poiIndexes = new Map();
+const loadedPoiCategories = new Set();
+const poiCategoryLoadPromises = new Map();
 let poiMarkerMap = new Map();
+let aiPoiHighlightMarkerMap = new Map();
+let highlightedPoiIds = new Set();
 let poiInfoMarker = null;
 let activePoiPopupItems = [];
 let activePoiPopupIndex = 0;
@@ -33,14 +40,33 @@ let distanceMeasureTotalLabel = null;
 
 const MOBILE_MAP_MEDIA_QUERY = window.matchMedia("(max-width: 768px)");
 const FAVORITE_PROPERTY_STORAGE_KEY = "zipchatgo.favoritePropertyIds";
+const propertyPriceHistoryCache = new Map();
+const propertyProximityCache = new Map();
 let mobileMapView = "map";
 let favoritePropertyIds = loadFavoritePropertyIds();
+let currentMapLocation = null;
+let reverseGeocodeTimer = null;
+let reverseGeocodeRequestSequence = 0;
+const reverseGeocodeCache = new Map();
+let legalDongRegions = [];
+let legalDongRegionByCode = new Map();
+let currentLegalDong = null;
+let selectedLegalDong = null;
+let selectedLegalDongLabelMarker = null;
+let propertySearchCandidates = [];
+let searchSuggestionTimer = null;
+let visibleSearchSuggestions = [];
+let autocompleteActiveIndex = -1;
+let activePropertySearchTarget = null;
+let activePropertyFilter = null;
 
 const INITIAL_CENTER = new naver.maps.LatLng(37.40, 127.15);
+const MAP_VIEWPORT_HISTORY_KEY = "zipchatgoMapViewport";
 
 const APP_MIN_ZOOM = 10; // 0단계
 const APP_START_ZOOM = 11;   // 처음 화면 1단계
 const APP_MAX_ZOOM = 18; // 8단계
+const AI_MOVE_MIN_ZOOM_STAGE = 6;
 
 const SIGUNGU_STAGE_MAX = 2; // 1~2단계
 const DONG_STAGE_MAX = 4;    // 3~4단계
@@ -48,12 +74,78 @@ const DONG_STAGE_MAX = 4;    // 3~4단계
 
 const MAX_VISIBLE_MARKERS = 700;
 const MAX_LIST_ITEMS = 200;
+const restoredMapViewport = getMapViewportFromHistory();
 const PROPERTY_CLUSTER_MARKER_WIDTH = 62;
 const PROPERTY_CLUSTER_MARKER_HEIGHT = 60;
 const PROPERTY_MARKER_WIDTH = 62;
 const PROPERTY_MARKER_HEIGHT = 58;
 const MAX_VISIBLE_POI_MARKERS = 500;
 const MAX_BUS_ROUTES_PER_STOP = 30;
+const REVERSE_GEOCODE_DELAY_MS = 400;
+const REVERSE_GEOCODE_CACHE_LIMIT = 50;
+const LEGAL_DONG_GEOJSON_URL = "/data/bundang_legal_dong.geojson";
+const LEGAL_DONG_COLORS = Object.freeze([
+  "#f4a6a6",
+  "#f6c58f",
+  "#f3df8b",
+  "#a8d8a8",
+  "#9fd9d2",
+  "#a9c8f5",
+  "#c6b1eb",
+  "#e5add2"
+]);
+const SEARCH_SUGGESTION_DELAY_MS = 180;
+const MAX_SEARCH_SUGGESTIONS = 10;
+const PROPERTY_FILTER_DEFINITIONS = Object.freeze({
+  maxPrice: {
+    title: "가격",
+    defaultLabel: "가격",
+    labelId: "maxPriceFilterLabel",
+    options: [
+      { value: "", label: "전체" },
+      { value: "500000000", label: "5억 이하" },
+      { value: "700000000", label: "7억 이하" },
+      { value: "1000000000", label: "10억 이하" },
+      { value: "1500000000", label: "15억 이하" },
+      { value: "over1500000000", label: "15억 초과" }
+    ]
+  },
+  areaRange: {
+    title: "면적",
+    defaultLabel: "면적",
+    labelId: "areaRangeFilterLabel",
+    options: [
+      { value: "", label: "전체" },
+      { value: "under10", label: "10평 미만" },
+      { value: "10s", label: "10평대" },
+      { value: "20s", label: "20평대" },
+      { value: "30s", label: "30평대" },
+      { value: "40s", label: "40평대" },
+      { value: "50s", label: "50평대" },
+      { value: "60plus", label: "60평 이상" }
+    ]
+  },
+  maxBuildingAge: {
+    title: "준공년도",
+    defaultLabel: "준공년도",
+    labelId: "maxBuildingAgeFilterLabel",
+    options: [
+      { value: "", label: "전체" },
+      { value: "5", label: "5년 이내" },
+      { value: "10", label: "10년 이내" },
+      { value: "15", label: "15년 이내" },
+      { value: "20", label: "20년 이내" },
+      { value: "25", label: "25년 이내" },
+      { value: "over25", label: "25년 초과" }
+    ]
+  }
+});
+const appliedPropertyFilters = {
+  maxPrice: "",
+  areaRange: "",
+  maxBuildingAge: ""
+};
+const draftPropertyFilters = { ...appliedPropertyFilters };
 
 const PROPERTY_IMAGE_BASE_PATH = "/data/아파트_공통_이미지";
 const APARTMENT_IMAGE_COUNT = 93;
@@ -101,6 +193,7 @@ const POI_CATEGORY_CONFIG = {
     icon: '<path d="m4 10 8-6 8 6v9H4v-9Z"/><path d="M7 11h10v5H7zM9 19v-3m6 3v-3"/>'
   }
 };
+const PROPERTY_DETAIL_POI_CATEGORIES = Object.freeze(Object.keys(POI_CATEGORY_CONFIG));
 
 const POI_VARIANT_CONFIG = {
   police: {
@@ -114,20 +207,149 @@ const POI_VARIANT_CONFIG = {
 };
 
 map = new naver.maps.Map("map", {
-  center: INITIAL_CENTER,
-  zoom: APP_START_ZOOM,
+  center: restoredMapViewport
+    ? new naver.maps.LatLng(restoredMapViewport.lat, restoredMapViewport.lng)
+    : INITIAL_CENTER,
+  zoom: restoredMapViewport?.zoom ?? APP_START_ZOOM,
   minZoom: APP_MIN_ZOOM,
   maxZoom: APP_MAX_ZOOM,
   zoomControl: false
 });
 
-loadProperties();
-loadPois();
+window.zipchatgoMapState = Object.freeze({
+  getSnapshot: getAiAppState
+});
+
+const propertyDataReady = loadProperties();
+const legalDongDataReady = loadLegalDongBoundaries();
+
+window.zipchatgoMapActions = Object.freeze({
+  execute: executeAiMapActions,
+  resetManualPropertySearch: resetManualPropertySearch,
+  refreshPropertyMap: scheduleRender
+});
+
+const poiDataReady = Promise.resolve();
+
+function getAiAppState() {
+  const center = map.getCenter();
+  const bounds = map.getBounds();
+  const southWest = bounds.getSW();
+  const northEast = bounds.getNE();
+  const maxPrice = appliedPropertyFilters.maxPrice;
+
+  return {
+    current_page: "map",
+    map_center: {
+      lat: center.lat(),
+      lng: center.lng()
+    },
+    zoom: getAppZoomStage(map.getZoom()),
+    current_region: getCurrentMapLocation(center)?.region || null,
+    center_address: getCurrentMapLocation(center)?.address || null,
+    map_bounds: {
+      south: southWest.lat(),
+      west: southWest.lng(),
+      north: northEast.lat(),
+      east: northEast.lng()
+    },
+    current_legal_dong: toLegalDongAppState(currentLegalDong),
+    selected_region: selectedLegalDong ? {
+      type: "legal_dong",
+      code: selectedLegalDong.code,
+      name: selectedLegalDong.name,
+      full_name: selectedLegalDong.fullName,
+      center: selectedLegalDong.center,
+      bounds: selectedLegalDong.bounds
+    } : null,
+    selected_property_id: selectedProperty?.id != null ? String(selectedProperty.id) : null,
+    selected_property: selectedProperty ? {
+      id: String(selectedProperty.id),
+      title: selectedProperty.title || null,
+      building_name: selectedProperty.building_name || null,
+      property_type: selectedProperty.property_type || null,
+      sale_price: Number.isFinite(Number(selectedProperty.sale_price))
+        ? Number(selectedProperty.sale_price)
+        : null,
+      address: selectedProperty.address || null,
+      latitude: Number.isFinite(Number(selectedProperty.latitude))
+        ? Number(selectedProperty.latitude)
+        : null,
+      longitude: Number.isFinite(Number(selectedProperty.longitude))
+        ? Number(selectedProperty.longitude)
+        : null
+    } : null,
+    favorite_property_ids: Array.from(favoritePropertyIds, String),
+    filters: {
+      keyword: document.getElementById("searchInput")?.value.trim() || null,
+      property_type: null,
+      max_price: maxPrice ? Number(maxPrice) : null
+    }
+  };
+}
+
+function getMapViewportFromHistory() {
+  const viewport = window.history.state?.[MAP_VIEWPORT_HISTORY_KEY];
+  const lat = Number(viewport?.lat);
+  const lng = Number(viewport?.lng);
+  const zoom = Number(viewport?.zoom);
+
+  if (
+    !Number.isFinite(lat) || lat < -90 || lat > 90 ||
+    !Number.isFinite(lng) || lng < -180 || lng > 180 ||
+    !Number.isInteger(zoom) || zoom < APP_MIN_ZOOM || zoom > APP_MAX_ZOOM
+  ) return null;
+
+  const propertyIds = Array.isArray(viewport.property_ids)
+    ? viewport.property_ids.map(String).slice(0, MAX_LIST_ITEMS)
+    : [];
+  const selectedPropertyId = viewport.selected_property_id == null
+    ? null
+    : String(viewport.selected_property_id);
+
+  return { lat, lng, zoom, propertyIds, selectedPropertyId };
+}
+
+function saveMapViewportToHistory() {
+  const center = map?.getCenter();
+  const zoom = Number(map?.getZoom());
+  if (!center || !Number.isInteger(zoom)) return;
+
+  const currentState = window.history.state && typeof window.history.state === "object"
+    ? window.history.state
+    : {};
+
+  window.history.replaceState({
+    ...currentState,
+    [MAP_VIEWPORT_HISTORY_KEY]: {
+      lat: center.lat(),
+      lng: center.lng(),
+      zoom,
+      property_ids: displayedPropertyIds,
+      selected_property_id: selectedProperty?.id ?? null
+    }
+  }, "");
+}
+
+function restorePropertySelectionFromHistory() {
+  const propertiesById = new Map(allProperties.map(item => [item.id, item]));
+  const restoredItems = (restoredMapViewport?.propertyIds || [])
+    .map(id => propertiesById.get(id))
+    .filter(Boolean);
+
+  renderList(restoredItems);
+
+  if (restoredMapViewport?.selectedPropertyId) {
+    const selectedItem = propertiesById.get(restoredMapViewport.selectedPropertyId);
+    if (selectedItem) openPropertyDetail(selectedItem);
+  }
+}
 
 async function loadProperties() {
   try {
     const res = await fetch("/api/map/properties");
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    reportFallbackDataSource(res, "매물");
     const data = await res.json();
 
     allProperties = data
@@ -140,22 +362,30 @@ async function loadProperties() {
         deposit: Number(item.deposit),
         monthly_rent: Number(item.monthly_rent),
         maintenance_fee: Number(item.maintenance_fee),
-        exclusive_area: Number(item.exclusive_area)
+        exclusive_area: Number(item.exclusive_area),
+        built_year: Number(item.built_year)
       }))
       .filter(item => !isNaN(item.latitude) && !isNaN(item.longitude));
 
     filteredProperties = allProperties;
+    rebuildPropertySearchCandidates();
 
     rebuildIndexes();
 
-    // 처음 화면은 항상 1단계 고정
-    map.setCenter(INITIAL_CENTER);
-    map.setZoom(APP_START_ZOOM);
+    // 복원할 방문 기록이 없을 때만 기본 위치와 줌을 사용한다.
+    if (restoredMapViewport) {
+      map.setCenter(new naver.maps.LatLng(restoredMapViewport.lat, restoredMapViewport.lng));
+      map.setZoom(restoredMapViewport.zoom);
+    } else {
+      map.setCenter(INITIAL_CENTER);
+      map.setZoom(APP_START_ZOOM);
+    }
 
     bindEvents();
+    scheduleReverseGeocode();
 
     if (!openRequestedPropertyFromUrl()) {
-      renderList([]);
+      restorePropertySelectionFromHistory();
       scheduleRender();
     }
 
@@ -165,43 +395,61 @@ async function loadProperties() {
   }
 }
 
-async function loadPois() {
-  try {
-    const res = await fetch("/api/map/pois");
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-
-    allPois = data
-      .map(item => ({
-        ...item,
-        poi_id: String(item.poi_id),
-        latitude: Number(item.latitude),
-        longitude: Number(item.longitude)
-      }))
-      .filter(item => (
-        POI_CATEGORY_CONFIG[item.category] &&
-        Number.isFinite(item.latitude) &&
-        Number.isFinite(item.longitude)
-      ));
-
-    document.querySelectorAll(".poi-toggle").forEach(button => {
-      const category = button.dataset.poiCategory;
-      const count = allPois.filter(item => item.category === category).length;
-      button.title = `${POI_CATEGORY_CONFIG[category].label} 시설 ${count.toLocaleString()}개`;
-    });
-
-    if (selectedProperty) {
-      renderPropertyDetail(selectedProperty);
-    }
-
-    if (activePoiCategories.size) {
-      rebuildPoiIndex();
-      scheduleRender();
-    }
-  } catch (err) {
-    console.error("POI 데이터 로드 실패:", err);
-    reportMapDataError("주변 시설 데이터를 불러오지 못했습니다.");
+async function loadPoiCategory(category) {
+  if (!POI_CATEGORY_CONFIG[category]) return false;
+  if (loadedPoiCategories.has(category)) return true;
+  if (poiCategoryLoadPromises.has(category)) {
+    return poiCategoryLoadPromises.get(category);
   }
+
+  const loadPromise = (async () => {
+    try {
+      const res = await fetch(`/api/map/pois?category=${encodeURIComponent(category)}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      reportFallbackDataSource(res, "주변 시설");
+      const data = await res.json();
+
+      const categoryPois = data
+        .map(item => ({
+          ...item,
+          poi_id: String(item.poi_id),
+          latitude: Number(item.latitude),
+          longitude: Number(item.longitude)
+        }))
+        .filter(item => (
+          item.category === category &&
+          Number.isFinite(item.latitude) &&
+          Number.isFinite(item.longitude)
+        ));
+
+      allPois = allPois
+        .filter(item => item.category !== category)
+        .concat(categoryPois);
+      loadedPoiCategories.add(category);
+      propertyProximityCache.clear();
+
+      const button = [...document.querySelectorAll(".poi-toggle")]
+        .find(item => item.dataset.poiCategory === category);
+      if (button) {
+        button.title = `${POI_CATEGORY_CONFIG[category].label} 시설 ${categoryPois.length.toLocaleString()}개`;
+      }
+
+      if (activePoiCategories.has(category)) {
+        rebuildPoiIndex();
+        scheduleRender();
+      }
+      return true;
+    } catch (err) {
+      console.error("POI 데이터 로드 실패:", err);
+      reportMapDataError("주변 시설 데이터를 불러오지 못했습니다.");
+      return false;
+    } finally {
+      poiCategoryLoadPromises.delete(category);
+    }
+  })();
+
+  poiCategoryLoadPromises.set(category, loadPromise);
+  return loadPromise;
 }
 
 function reportMapDataError(message) {
@@ -215,11 +463,34 @@ function reportMapDataError(message) {
   status.hidden = false;
 }
 
+function reportFallbackDataSource(response, dataLabel) {
+  if (response.headers.get("X-Map-Data-Source") !== "fallback-json") return;
+
+  const status = document.getElementById("mapDataStatus");
+  if (!status) return;
+
+  const message = `TiDB 연결 문제로 ${dataLabel} 샘플 데이터를 표시하고 있습니다.`;
+  if (!status.textContent.includes(message)) {
+    status.textContent = status.textContent ? `${status.textContent} ${message}` : message;
+  }
+  status.classList.add("is-fallback");
+  status.hidden = false;
+}
+
 function bindEvents() {
-  naver.maps.Event.addListener(map, "idle", scheduleRender);
+  updateMapZoomLevelIndicator();
+  naver.maps.Event.addListener(map, "zoom_changed", updateMapZoomLevelIndicator);
+  naver.maps.Event.addListener(map, "idle", () => {
+    saveMapViewportToHistory();
+    updateMapZoomLevelIndicator();
+    scheduleRender();
+    scheduleReverseGeocode();
+    updateCurrentLegalDong();
+    clearSelectedLegalDongWhenOutOfView();
+  });
   naver.maps.Event.addListener(map, "dragstart", closeAllInfoPopups);
   naver.maps.Event.addListener(map, "zoomstart", closeAllInfoPopups);
-  naver.maps.Event.addListener(map, "click", handleDistanceMeasureClick);
+  naver.maps.Event.addListener(map, "click", handleMapClick);
   naver.maps.Event.addListener(map, "mousemove", handleDistanceMeasureMouseMove);
 
   document.getElementById("map").addEventListener("contextmenu", event => {
@@ -229,14 +500,15 @@ function bindEvents() {
     finishDistanceMeasurement();
   });
 
-  document.getElementById("searchBtn").addEventListener("click", applyFilters);
-
-  document.getElementById("searchInput").addEventListener("keydown", e => {
-    if (e.key === "Enter") applyFilters();
+  document.getElementById("searchBtn").addEventListener("click", executePropertySearch);
+  document.getElementById("searchResetBtn").addEventListener("click", () => {
+    resetManualPropertySearch();
   });
 
-  document.getElementById("typeFilter").addEventListener("change", applyFilters);
-  document.getElementById("priceFilter").addEventListener("change", applyFilters);
+  const searchInput = document.getElementById("searchInput");
+  searchInput.addEventListener("input", scheduleSearchSuggestions);
+  searchInput.addEventListener("keydown", handleSearchInputKeydown);
+  initializePropertyFilters();
   document.getElementById("propertyDetailBack").addEventListener("click", () => {
     showPropertyListView({ restoreScroll: true });
 
@@ -255,6 +527,10 @@ function bindEvents() {
   document.getElementById("distanceMeasureClear").addEventListener("click", () => {
     resetDistanceMeasurement({ keepOpen: true });
   });
+  document.getElementById("selectedLegalDongClear").addEventListener(
+    "click",
+    clearSelectedLegalDong
+  );
 
   document.querySelectorAll(".poi-toggle").forEach(button => {
     button.addEventListener("click", () => togglePoiCategory(button));
@@ -262,6 +538,8 @@ function bindEvents() {
 
   document.addEventListener("keydown", event => {
     if (event.key === "Escape") {
+      closeSearchSuggestions();
+      closePropertyFilterPanel();
       if (isDistanceMeasurementOpen()) {
         closeDistanceMeasurement();
         return;
@@ -270,10 +548,44 @@ function bindEvents() {
       closeAllInfoPopups();
     }
   });
+  document.addEventListener("click", event => {
+    if (!event.target.closest?.(".search-box")) closeSearchSuggestions();
+    if (!event.target.closest?.("#propertyFilters")) closePropertyFilterPanel();
+  });
 
   MOBILE_MAP_MEDIA_QUERY.addEventListener("change", syncResponsiveMapLayout);
+  window.addEventListener("resize", positionFloatingSearchPanels);
+  window.visualViewport?.addEventListener("resize", positionFloatingSearchPanels);
+  document.getElementById("propertySidebar").addEventListener("scroll", positionFloatingSearchPanels);
   window.addEventListener("storage", handleFavoriteStorageChange);
   syncResponsiveMapLayout();
+}
+
+function updateMapZoomLevelIndicator() {
+  const indicator = document.getElementById("mapZoomLevelIndicator");
+  const fill = document.getElementById("mapZoomLevelFill");
+  const marker = document.getElementById("mapZoomLevelMarker");
+  const value = document.getElementById("mapZoomLevelValue");
+  if (!indicator || !fill || !marker || !value || !map) return;
+
+  const mapZoom = Number(map.getZoom());
+  if (!Number.isFinite(mapZoom)) return;
+
+  const zoomStage = getAppZoomStage(mapZoom);
+  const minStage = getAppZoomStage(APP_MIN_ZOOM);
+  const maxStage = getAppZoomStage(APP_MAX_ZOOM);
+  const clampedStage = Math.min(maxStage, Math.max(minStage, zoomStage));
+  const range = maxStage - minStage;
+  const progress = range > 0
+    ? ((clampedStage - minStage) / range) * 100
+    : 100;
+
+  value.value = String(zoomStage);
+  value.textContent = String(zoomStage);
+  fill.style.height = `${progress}%`;
+  marker.style.bottom = `${progress}%`;
+  value.style.bottom = `${progress}%`;
+  indicator.setAttribute("aria-valuenow", String(zoomStage));
 }
 
 function scheduleRender() {
@@ -286,8 +598,10 @@ function scheduleRender() {
 
 function applyFilters() {
   const keyword = document.getElementById("searchInput").value.trim();
-  const type = document.getElementById("typeFilter").value;
-  const maxPrice = document.getElementById("priceFilter").value;
+  const normalizedKeyword = normalizeSearchText(keyword);
+  const priceFilter = appliedPropertyFilters.maxPrice;
+  const areaRange = appliedPropertyFilters.areaRange;
+  const buildingAgeFilter = appliedPropertyFilters.maxBuildingAge;
 
   filteredProperties = allProperties.filter(item => {
     const searchText = `
@@ -299,18 +613,550 @@ function applyFilters() {
       ${item.lot_number || ""}
     `;
 
-    const keywordOk = !keyword || searchText.includes(keyword);
-    const typeOk = !type || item.property_type === type;
-    const priceOk = !maxPrice || item.sale_price <= Number(maxPrice);
+    const salePrice = Number(item.sale_price);
+    const keywordOk = matchesPropertySearchTarget(
+      item,
+      searchText,
+      normalizedKeyword,
+      activePropertySearchTarget
+    );
+    const priceOk = matchesPriceFilter(salePrice, priceFilter);
+    const areaOk = matchesAreaRange(item.exclusive_area, areaRange);
+    const buildingAgeOk = matchesBuildingAge(item.built_year, buildingAgeFilter);
+    const regionOk = matchesSelectedLegalDong(item);
 
-    return keywordOk && typeOk && priceOk;
+    return regionOk && keywordOk && priceOk && areaOk && buildingAgeOk;
   });
 
-    rebuildIndexes();
-    renderList([]);
+  rebuildIndexes();
+  clearPropertyMarkers();
+  renderList(filteredProperties);
 
-    // 필터를 바꿔도 지도 줌/위치는 유지
+  // 필터를 바꿔도 지도 줌/위치는 유지
+  scheduleRender();
+}
+
+function matchesPriceFilter(salePrice, priceFilter) {
+  if (!priceFilter) return true;
+  if (!Number.isFinite(salePrice)) return false;
+  if (priceFilter === "over1500000000") return salePrice > 1_500_000_000;
+
+  const maxPrice = Number(priceFilter);
+  return Number.isFinite(maxPrice) && salePrice <= maxPrice;
+}
+
+function matchesSelectedLegalDong(item) {
+  if (!selectedLegalDong) return true;
+
+  const region = legalDongRegionByCode.get(String(selectedLegalDong.code));
+  return Boolean(region) && isPointInsideLegalDong(
+    Number(item.longitude),
+    Number(item.latitude),
+    region.coordinates
+  );
+}
+
+function matchesPropertySearchTarget(item, searchText, normalizedKeyword, target) {
+  if (!target) {
+    return !normalizedKeyword || normalizeSearchText(searchText).includes(normalizedKeyword);
+  }
+
+  if (target.type === "complex") {
+    return normalizeSearchText(item.building_name) === normalizeSearchText(target.label);
+  }
+  if (target.type === "address") {
+    return normalizeSearchText(item.address) === normalizeSearchText(target.label);
+  }
+  if (target.type === "region") {
+    const region = legalDongRegionByCode.get(target.legalDongCode);
+    return Boolean(region) && isPointInsideLegalDong(
+      Number(item.longitude),
+      Number(item.latitude),
+      region.coordinates
+    );
+  }
+
+  return !normalizedKeyword || normalizeSearchText(searchText).includes(normalizedKeyword);
+}
+
+function matchesAreaRange(area, range) {
+  if (!range) return true;
+
+  const pyeong = getAreaPyeong(area);
+  if (pyeong === null) return false;
+
+  if (range === "under10") return pyeong < 10;
+  if (range === "60plus") return pyeong >= 60;
+
+  const lowerBound = Number.parseInt(range, 10);
+  return Number.isFinite(lowerBound)
+    && pyeong >= lowerBound
+    && pyeong < lowerBound + 10;
+}
+
+function matchesBuildingAge(builtYear, buildingAgeFilter) {
+  if (!buildingAgeFilter) return true;
+
+  const numericBuiltYear = Number(builtYear);
+  if (!Number.isInteger(numericBuiltYear) || numericBuiltYear <= 0) return false;
+
+  const buildingAge = new Date().getFullYear() - numericBuiltYear;
+  if (buildingAgeFilter === "over25") return buildingAge > 25;
+
+  const maxBuildingAge = Number(buildingAgeFilter);
+  return buildingAge >= 0
+    && Number.isFinite(maxBuildingAge)
+    && buildingAge <= maxBuildingAge;
+}
+
+function initializePropertyFilters() {
+  document.querySelectorAll("[data-property-filter]").forEach(trigger => {
+    trigger.addEventListener("click", () => {
+      togglePropertyFilterPanel(trigger.dataset.propertyFilter);
+    });
+  });
+  updatePropertyFilterLabels();
+}
+
+function togglePropertyFilterPanel(filterName) {
+  if (!PROPERTY_FILTER_DEFINITIONS[filterName]) return;
+  if (activePropertyFilter === filterName) {
+    closePropertyFilterPanel();
+    return;
+  }
+
+  activePropertyFilter = filterName;
+  document.getElementById("propertyFilterPanel").hidden = false;
+  document.querySelectorAll("[data-property-filter]").forEach(trigger => {
+    trigger.setAttribute("aria-expanded", "true");
+  });
+  positionPropertyFilterPanel();
+  renderPropertyFilterPanel();
+}
+
+function positionPropertyFilterPanel() {
+  const panel = document.getElementById("propertyFilterPanel");
+  if (!panel || panel.hidden) return;
+
+  const anchor = document.getElementById("propertyFilters").getBoundingClientRect();
+  const viewportHeight = window.visualViewport?.height || window.innerHeight;
+  const viewportBottomGap = 12;
+  const top = Math.max(0, anchor.bottom);
+  const availableHeight = Math.max(0, viewportHeight - top - viewportBottomGap);
+
+  panel.style.setProperty("--filter-panel-top", `${Math.round(top)}px`);
+  panel.style.setProperty(
+    "--filter-panel-left",
+    `${Math.round(anchor.left)}px`
+  );
+  panel.style.setProperty(
+    "--filter-panel-width",
+    `${Math.max(0, Math.round(anchor.width))}px`
+  );
+  panel.style.setProperty(
+    "--filter-panel-max-height",
+    `${Math.floor(availableHeight)}px`
+  );
+}
+
+function positionSearchSuggestions() {
+  const container = document.getElementById("searchSuggestions");
+  if (!container || container.hidden) return;
+
+  const anchor = document.querySelector(".search-box").getBoundingClientRect();
+  const viewportHeight = window.visualViewport?.height || window.innerHeight;
+  const horizontalInset = isMobileMapLayout() ? 12 : 16;
+  const viewportBottomGap = 12;
+  const top = Math.max(0, anchor.bottom + 7);
+  const availableHeight = Math.max(0, viewportHeight - top - viewportBottomGap);
+
+  container.style.setProperty("--search-suggestions-top", `${Math.round(top)}px`);
+  container.style.setProperty(
+    "--search-suggestions-left",
+    `${Math.round(anchor.left + horizontalInset)}px`
+  );
+  container.style.setProperty(
+    "--search-suggestions-width",
+    `${Math.max(0, Math.round(anchor.width - horizontalInset * 2))}px`
+  );
+  container.style.setProperty(
+    "--search-suggestions-max-height",
+    `${Math.min(310, Math.floor(availableHeight))}px`
+  );
+}
+
+function positionFloatingSearchPanels() {
+  positionPropertyFilterPanel();
+  positionSearchSuggestions();
+}
+
+function closePropertyFilterPanel() {
+  activePropertyFilter = null;
+  document.getElementById("propertyFilterPanel").hidden = true;
+  document.querySelectorAll("[data-property-filter]").forEach(trigger => {
+    trigger.setAttribute("aria-expanded", "false");
+  });
+}
+
+function renderPropertyFilterPanel() {
+  const groups = document.getElementById("propertyFilterGroups");
+  groups.innerHTML = "";
+
+  Object.entries(PROPERTY_FILTER_DEFINITIONS).forEach(([name, definition]) => {
+    const group = document.createElement("section");
+    const title = document.createElement("strong");
+    title.className = "filter-group-title";
+    title.textContent = definition.title;
+
+    const options = document.createElement("div");
+    options.className = "filter-options";
+    options.setAttribute("role", "radiogroup");
+    options.setAttribute("aria-label", definition.title);
+
+    definition.options.forEach(option => {
+      const selected = draftPropertyFilters[name] === option.value;
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = `filter-option${selected ? " is-selected" : ""}`;
+      button.textContent = option.label;
+      button.setAttribute("role", "radio");
+      button.setAttribute("aria-checked", String(selected));
+      button.addEventListener("click", () => {
+        draftPropertyFilters[name] = option.value;
+        updatePropertyFilterLabels(draftPropertyFilters);
+        options.querySelectorAll(".filter-option").forEach(candidate => {
+          const candidateSelected = candidate === button;
+          candidate.classList.toggle("is-selected", candidateSelected);
+          candidate.setAttribute("aria-checked", String(candidateSelected));
+        });
+      });
+      options.appendChild(button);
+    });
+
+    group.append(title, options);
+    groups.appendChild(group);
+  });
+}
+
+function updatePropertyFilterLabels(filters = appliedPropertyFilters) {
+  Object.entries(PROPERTY_FILTER_DEFINITIONS).forEach(([name, definition]) => {
+    const selected = definition.options.find(option => (
+      option.value === filters[name]
+    ));
+    const label = document.getElementById(definition.labelId);
+    const trigger = document.querySelector(`[data-property-filter="${name}"]`);
+    if (label) {
+      label.textContent = selected?.value ? selected.label : definition.defaultLabel;
+    }
+    trigger?.classList.toggle("is-active", Boolean(selected?.value));
+  });
+}
+
+function resetManualPropertySearch({ renderResults = true } = {}) {
+  const searchInput = document.getElementById("searchInput");
+  if (searchInput) searchInput.value = "";
+
+  activePropertySearchTarget = null;
+  Object.keys(appliedPropertyFilters).forEach(name => {
+    appliedPropertyFilters[name] = "";
+    draftPropertyFilters[name] = "";
+  });
+  closeSearchSuggestions();
+  closePropertyFilterPanel();
+  updatePropertyFilterLabels();
+  clearSelectedLegalDong();
+  clearAiHighlightMarkers();
+
+  filteredProperties = allProperties;
+  rebuildIndexes();
+  clearPropertyMarkers();
+  if (renderResults) {
+    renderList([]);
+    closeAllInfoPopups();
     scheduleRender();
+  }
+}
+
+function rebuildPropertySearchCandidates() {
+  const candidates = [];
+  const seen = new Set();
+  const addCandidate = candidate => {
+    const key = `${candidate.type}|${normalizeSearchText(candidate.label)}`;
+    if (!candidate.label || seen.has(key)) return;
+    seen.add(key);
+    candidates.push(candidate);
+  };
+
+  allProperties.forEach(item => {
+    const buildingName = String(item.building_name || "").trim();
+    const address = String(item.address || "").trim();
+    if (buildingName) {
+      addCandidate({
+        type: "complex",
+        typeLabel: "단지",
+        label: buildingName,
+        keyword: buildingName,
+        detail: address
+      });
+    }
+    if (address) {
+      addCandidate({
+        type: "address",
+        typeLabel: "주소",
+        label: address,
+        keyword: address,
+        detail: buildingName
+      });
+    }
+  });
+
+  propertySearchCandidates = candidates;
+}
+
+function scheduleSearchSuggestions() {
+  clearTimeout(searchSuggestionTimer);
+  activePropertySearchTarget = null;
+  resetAutocompleteNavigation();
+  const query = document.getElementById("searchInput").value.trim();
+  if (query.length < 2) {
+    closeSearchSuggestions();
+    return;
+  }
+
+  searchSuggestionTimer = setTimeout(() => {
+    renderSearchSuggestions(getSearchSuggestions(query));
+  }, SEARCH_SUGGESTION_DELAY_MS);
+}
+
+function getSearchSuggestions(query) {
+  const normalizedQuery = normalizeSearchText(query);
+  if (normalizedQuery.length < 2) return [];
+
+  const regionCandidates = legalDongRegions.map(region => ({
+    type: "region",
+    typeLabel: "지역",
+    label: region.name,
+    keyword: region.name,
+    detail: region.fullName,
+    legalDongCode: region.code
+  }));
+  const typeOrder = { region: 0, complex: 1, address: 2 };
+
+  return [...regionCandidates, ...propertySearchCandidates]
+    .filter(candidate => normalizeSearchText(candidate.label).includes(normalizedQuery))
+    .sort((left, right) => {
+      const leftLabel = normalizeSearchText(left.label);
+      const rightLabel = normalizeSearchText(right.label);
+      const leftScore = leftLabel === normalizedQuery ? 0 : leftLabel.startsWith(normalizedQuery) ? 1 : 2;
+      const rightScore = rightLabel === normalizedQuery ? 0 : rightLabel.startsWith(normalizedQuery) ? 1 : 2;
+      return leftScore - rightScore
+        || typeOrder[left.type] - typeOrder[right.type]
+        || leftLabel.localeCompare(rightLabel, "ko");
+    })
+    .slice(0, MAX_SEARCH_SUGGESTIONS);
+}
+
+function renderSearchSuggestions(suggestions) {
+  const container = document.getElementById("searchSuggestions");
+  const input = document.getElementById("searchInput");
+  container.innerHTML = "";
+  visibleSearchSuggestions = suggestions;
+  autocompleteActiveIndex = -1;
+  input.removeAttribute("aria-activedescendant");
+
+  if (!suggestions.length) {
+    closeSearchSuggestions();
+    return;
+  }
+
+  suggestions.forEach((suggestion, index) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "search-suggestion";
+    button.id = `propertySearchSuggestion-${index}`;
+    button.setAttribute("role", "option");
+    button.setAttribute("aria-selected", "false");
+
+    const text = document.createElement("span");
+    text.className = "search-suggestion-text";
+    const label = document.createElement("strong");
+    label.textContent = suggestion.label;
+    text.appendChild(label);
+    if (suggestion.detail && suggestion.detail !== suggestion.label) {
+      const detail = document.createElement("span");
+      detail.textContent = suggestion.detail;
+      text.appendChild(detail);
+    }
+
+    const type = document.createElement("small");
+    type.textContent = suggestion.typeLabel;
+    button.append(text, type);
+    button.addEventListener("click", () => selectSearchSuggestion(suggestion));
+    button.addEventListener("mouseenter", () => setAutocompleteActiveIndex(index, false));
+    container.appendChild(button);
+  });
+
+  container.hidden = false;
+  input.setAttribute("aria-expanded", "true");
+  positionSearchSuggestions();
+}
+
+function closeSearchSuggestions() {
+  clearTimeout(searchSuggestionTimer);
+  const container = document.getElementById("searchSuggestions");
+  if (container) {
+    container.hidden = true;
+    container.innerHTML = "";
+  }
+  resetAutocompleteNavigation();
+  const input = document.getElementById("searchInput");
+  input?.setAttribute("aria-expanded", "false");
+  input?.removeAttribute("aria-activedescendant");
+}
+
+function resetAutocompleteNavigation() {
+  visibleSearchSuggestions = [];
+  autocompleteActiveIndex = -1;
+}
+
+function isSearchSuggestionListOpen() {
+  const container = document.getElementById("searchSuggestions");
+  return Boolean(container && !container.hidden && visibleSearchSuggestions.length);
+}
+
+function setAutocompleteActiveIndex(index, scrollIntoView = true) {
+  if (!visibleSearchSuggestions.length) return;
+
+  autocompleteActiveIndex = Math.min(
+    visibleSearchSuggestions.length - 1,
+    Math.max(0, index)
+  );
+  const input = document.getElementById("searchInput");
+  const options = document.querySelectorAll("#searchSuggestions .search-suggestion");
+
+  options.forEach((option, optionIndex) => {
+    const active = optionIndex === autocompleteActiveIndex;
+    option.classList.toggle("is-active", active);
+    option.setAttribute("aria-selected", String(active));
+  });
+
+  const activeOption = options[autocompleteActiveIndex];
+  if (!activeOption) return;
+  input.setAttribute("aria-activedescendant", activeOption.id);
+  if (scrollIntoView) {
+    const container = document.getElementById("searchSuggestions");
+    const optionTop = activeOption.offsetTop;
+    const optionBottom = optionTop + activeOption.offsetHeight;
+    if (optionTop < container.scrollTop) {
+      container.scrollTop = optionTop;
+    } else if (optionBottom > container.scrollTop + container.clientHeight) {
+      container.scrollTop = optionBottom - container.clientHeight;
+    }
+  }
+}
+
+function handleSearchInputKeydown(event) {
+  const suggestionsOpen = isSearchSuggestionListOpen();
+
+  if (event.key === "ArrowDown" && suggestionsOpen) {
+    event.preventDefault();
+    setAutocompleteActiveIndex(autocompleteActiveIndex + 1);
+    return;
+  }
+  if (event.key === "ArrowUp" && suggestionsOpen) {
+    event.preventDefault();
+    setAutocompleteActiveIndex(autocompleteActiveIndex < 0 ? 0 : autocompleteActiveIndex - 1);
+    return;
+  }
+  if (event.key === "Escape" && suggestionsOpen) {
+    event.preventDefault();
+    event.stopPropagation();
+    closeSearchSuggestions();
+    return;
+  }
+  if (event.key === "Enter") {
+    if (suggestionsOpen && autocompleteActiveIndex >= 0) {
+      event.preventDefault();
+      selectSearchSuggestion(visibleSearchSuggestions[autocompleteActiveIndex]);
+    }
+  }
+}
+
+function selectSearchSuggestion(suggestion) {
+  document.getElementById("searchInput").value = suggestion.keyword;
+  activePropertySearchTarget = { ...suggestion };
+  closeSearchSuggestions();
+}
+
+function executePropertySearch() {
+  const query = document.getElementById("searchInput").value.trim();
+  const normalizedQuery = normalizeSearchText(query);
+  const region = legalDongRegions.find(item => (
+    normalizeSearchText(item.name) === normalizedQuery
+    || normalizeSearchText(item.fullName) === normalizedQuery
+  ));
+
+  if (region) {
+    activePropertySearchTarget = {
+      type: "region",
+      label: region.name,
+      legalDongCode: region.code
+    };
+    selectLegalDong(region, { fitBounds: true });
+  } else if (
+    activePropertySearchTarget
+    && normalizeSearchText(activePropertySearchTarget.keyword) === normalizedQuery
+  ) {
+    if (activePropertySearchTarget.type !== "region" && selectedLegalDong) {
+      clearSelectedLegalDong();
+    }
+  } else if (selectedLegalDong) {
+    activePropertySearchTarget = null;
+    clearSelectedLegalDong();
+  } else {
+    activePropertySearchTarget = null;
+  }
+
+  closeSearchSuggestions();
+  closePropertyFilterPanel();
+  Object.assign(appliedPropertyFilters, draftPropertyFilters);
+  updatePropertyFilterLabels();
+  applyFilters();
+
+  if (["complex", "address"].includes(activePropertySearchTarget?.type)) {
+    focusPropertySearchResults(filteredProperties);
+  }
+}
+
+function focusPropertySearchResults(items) {
+  const positionedItems = items.filter(item => (
+    Number.isFinite(Number(item.latitude)) && Number.isFinite(Number(item.longitude))
+  ));
+  if (!positionedItems.length) return;
+
+  const center = positionedItems.reduce((result, item) => ({
+    lat: result.lat + Number(item.latitude) / positionedItems.length,
+    lng: result.lng + Number(item.longitude) / positionedItems.length
+  }), { lat: 0, lng: 0 });
+  const sameLocation = positionedItems.every(item => (
+    calculateDistanceMeters(
+      center.lat,
+      center.lng,
+      Number(item.latitude),
+      Number(item.longitude)
+    ) <= 50
+  ));
+
+  if (sameLocation) {
+    moveMapTo(new naver.maps.LatLng(center.lat, center.lng), APP_MAX_ZOOM);
+    return;
+  }
+
+  fitMapToData(positionedItems);
+}
+
+function normalizeSearchText(value) {
+  return String(value || "").trim().toLocaleLowerCase("ko-KR");
 }
 
 /* ===========================
@@ -462,17 +1308,28 @@ function getPoiMarkerConfig(category, variant) {
     : categoryConfig;
 }
 
-function togglePoiCategory(button) {
+async function togglePoiCategory(button) {
   const category = button.dataset.poiCategory;
-  const willActivate = !activePoiCategories.has(category);
+  if (!activePoiCategories.has(category) && !await loadPoiCategory(category)) return;
+  setPoiCategory(category, !activePoiCategories.has(category));
+}
 
-  if (willActivate) {
+function setPoiCategory(category, enabled) {
+  const button = [...document.querySelectorAll(".poi-toggle")]
+    .find(item => item.dataset.poiCategory === category);
+  if (!button || !POI_CATEGORY_CONFIG[category]) return;
+
+  if (enabled) {
     activePoiCategories.add(category);
   } else {
     activePoiCategories.delete(category);
+    if (allPois.some(poi => poi.category === category && highlightedPoiIds.has(poi.poi_id))) {
+      highlightedPoiIds.clear();
+      clearAiPoiHighlightMarkers();
+    }
   }
 
-  button.setAttribute("aria-pressed", String(willActivate));
+  button.setAttribute("aria-pressed", String(enabled));
   closePoiInfoPopup();
   rebuildPoiIndex();
   scheduleRender();
@@ -576,9 +1433,10 @@ function renderPois() {
 
   if (
     !poiIndexes.size ||
-    stage <= DONG_STAGE_MAX
+    (stage <= DONG_STAGE_MAX && !highlightedPoiIds.size)
   ) {
     clearPoiMarkers();
+    renderAiPoiHighlightMarkers();
     return;
   }
 
@@ -607,7 +1465,6 @@ function renderPois() {
     const key = props.cluster
       ? `poi-cluster-${category}-${props.cluster_id}`
       : props.markerKey;
-
     nextKeys.add(key);
 
     if (!poiMarkerMap.has(key)) {
@@ -622,16 +1479,17 @@ function renderPois() {
   });
 
   removeUnusedPoiMarkers(nextKeys);
+  renderAiPoiHighlightMarkers();
 }
 
-function renderPoiMarkerContent(category, config, title, count = 0) {
+function renderPoiMarkerContent(category, config, title, count = 0, highlighted = false) {
   const badge = count > 1
     ? `<span class="poi-marker-badge">${count > 99 ? "99+" : count.toLocaleString()}</span>`
     : "";
 
   if (category === "중개") {
     return `
-      <div class="brokerage-marker" title="${escapeHtml(title)}">
+      <div class="brokerage-marker${highlighted ? " is-ai-highlight" : ""}" title="${escapeHtml(title)}">
         <svg class="brokerage-marker-shape" viewBox="0 0 42 48" aria-hidden="true">
           <path class="brokerage-marker-house"
                 d="M21 2 39 14v21c0 2.2-1.8 4-4 4h-7l-7 8-7-8H7c-2.2 0-4-1.8-4-4V14L21 2Z"></path>
@@ -645,7 +1503,7 @@ function renderPoiMarkerContent(category, config, title, count = 0) {
   }
 
   return `
-    <div class="poi-marker ${config.className}" title="${escapeHtml(title)}">
+    <div class="poi-marker ${config.className}${highlighted ? " is-ai-highlight" : ""}" title="${escapeHtml(title)}">
       <svg class="poi-marker-icon" viewBox="0 0 24 24" aria-hidden="true">
         ${config.icon}
       </svg>
@@ -967,19 +1825,7 @@ function createPropertyMarker(item) {
     map,
     clickable: !distanceMeasureActive,
     icon: {
-      content: `
-        <div class="property-marker">
-          <svg class="property-marker-shape" viewBox="0 0 62 58" aria-hidden="true">
-            <path d="M2 20Q1 18 3 17L28 2Q31 0 34 2L59 17Q61 18 60 20T57 22H56V54Q56 56 54 56H8Q6 56 6 54V22H5Q3 22 2 20Z"></path>
-            <path class="property-marker-roof-highlight" d="M4 17.5 28.5 2.7Q31 1.2 33.5 2.7L58 17.5Q59.5 18.5 58.5 20H3.5Q2.5 18.5 4 17.5Z"></path>
-          </svg>
-          <div class="property-area">${formatAreaPyeong(item.exclusive_area)}</div>
-          <div class="property-marker-price">
-              <span class="deal-type">매</span>
-              <span class="deal-price">${formatPriceToEok(item.sale_price)}</span>
-          </div>
-        </div>
-      `,
+      content: renderPropertyMarkerContent(item),
       anchor: new naver.maps.Point(
         PROPERTY_MARKER_WIDTH / 2,
         PROPERTY_MARKER_HEIGHT / 2
@@ -995,6 +1841,574 @@ function createPropertyMarker(item) {
   });
 
   return marker;
+}
+
+async function loadLegalDongBoundaries() {
+  try {
+    const response = await fetch(LEGAL_DONG_GEOJSON_URL);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+    const geojson = await response.json();
+    const features = Array.isArray(geojson?.features) ? geojson.features : [];
+    legalDongRegions = features.map(createLegalDongRegion).filter(Boolean);
+
+    if (!legalDongRegions.length) {
+      throw new Error("법정동 경계가 없습니다.");
+    }
+
+    legalDongRegionByCode = new Map(
+      legalDongRegions.map(region => [region.code, region])
+    );
+    map.data.addGeoJson({
+      type: "FeatureCollection",
+      features
+    });
+    updateLegalDongStyles();
+    updateCurrentLegalDong();
+  } catch (error) {
+    console.error("법정동 경계 데이터 로드 실패:", error);
+    reportMapDataError("법정동 경계를 불러오지 못했습니다.");
+  }
+}
+
+function createLegalDongRegion(feature, index) {
+  const code = String(feature?.properties?.legal_dong_code || "").trim();
+  const name = String(feature?.properties?.legal_dong_name || "").trim();
+  const geometry = feature?.geometry;
+
+  if (!code || !name || !geometry) return null;
+
+  const polygonCoordinates = geometry.type === "Polygon"
+    ? [geometry.coordinates]
+    : geometry.type === "MultiPolygon"
+      ? geometry.coordinates
+      : [];
+  if (!polygonCoordinates.length) return null;
+
+  const bounds = getLegalDongCoordinateBounds(polygonCoordinates);
+  if (!bounds) return null;
+  const labelPoint = getLegalDongLabelPoint(polygonCoordinates, bounds);
+
+  const region = {
+    code,
+    name,
+    fullName: `경기도 성남시 분당구 ${name}`,
+    color: LEGAL_DONG_COLORS[index % LEGAL_DONG_COLORS.length],
+    bounds,
+    labelPoint,
+    center: {
+      lat: (bounds.south + bounds.north) / 2,
+      lng: (bounds.west + bounds.east) / 2
+    },
+    coordinates: polygonCoordinates
+  };
+
+  return region;
+}
+
+function getLegalDongCoordinateBounds(polygons) {
+  let south = Infinity;
+  let west = Infinity;
+  let north = -Infinity;
+  let east = -Infinity;
+
+  polygons.forEach(polygon => {
+    polygon.forEach(ring => {
+      ring.forEach(coordinate => {
+        const lng = Number(coordinate?.[0]);
+        const lat = Number(coordinate?.[1]);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+        south = Math.min(south, lat);
+        west = Math.min(west, lng);
+        north = Math.max(north, lat);
+        east = Math.max(east, lng);
+      });
+    });
+  });
+
+  return [south, west, north, east].every(Number.isFinite)
+    ? { south, west, north, east }
+    : null;
+}
+
+function getLegalDongLabelPoint(polygons, bounds) {
+  const boundsCenter = {
+    lng: (bounds.west + bounds.east) / 2,
+    lat: (bounds.south + bounds.north) / 2
+  };
+  const centroidCandidates = polygons
+    .map(polygon => getRingCentroid(polygon[0]))
+    .filter(Boolean)
+    .sort((left, right) => right.area - left.area);
+  const candidates = [...centroidCandidates, boundsCenter];
+  const containedCandidate = candidates.find(point => (
+    isPointInsideLegalDong(point.lng, point.lat, polygons)
+  ));
+  if (containedCandidate) {
+    return { lat: containedCandidate.lat, lng: containedCandidate.lng };
+  }
+
+  let bestGridPoint = null;
+  let bestDistance = Infinity;
+  const gridSize = 12;
+  for (let row = 0; row < gridSize; row += 1) {
+    for (let column = 0; column < gridSize; column += 1) {
+      const lat = bounds.south + (bounds.north - bounds.south) * (row + 0.5) / gridSize;
+      const lng = bounds.west + (bounds.east - bounds.west) * (column + 0.5) / gridSize;
+      if (!isPointInsideLegalDong(lng, lat, polygons)) continue;
+
+      const distance = (lat - boundsCenter.lat) ** 2 + (lng - boundsCenter.lng) ** 2;
+      if (distance < bestDistance) {
+        bestGridPoint = { lat, lng };
+        bestDistance = distance;
+      }
+    }
+  }
+
+  return bestGridPoint || boundsCenter;
+}
+
+function getRingCentroid(ring) {
+  if (!Array.isArray(ring) || ring.length < 3) return null;
+
+  const [originLng, originLat] = ring[0];
+  let doubleArea = 0;
+  let lngSum = 0;
+  let latSum = 0;
+  for (let current = 0, previous = ring.length - 1; current < ring.length; previous = current++) {
+    const [currentLng, currentLat] = ring[current];
+    const [previousLng, previousLat] = ring[previous];
+    const currentX = currentLng - originLng;
+    const currentY = currentLat - originLat;
+    const previousX = previousLng - originLng;
+    const previousY = previousLat - originLat;
+    const cross = previousX * currentY - currentX * previousY;
+    doubleArea += cross;
+    lngSum += (previousX + currentX) * cross;
+    latSum += (previousY + currentY) * cross;
+  }
+
+  if (Math.abs(doubleArea) < Number.EPSILON) return null;
+  return {
+    lng: originLng + lngSum / (3 * doubleArea),
+    lat: originLat + latSum / (3 * doubleArea),
+    area: Math.abs(doubleArea / 2)
+  };
+}
+
+function getLegalDongStyle(feature) {
+  const code = String(feature.getProperty("legal_dong_code") || "").trim();
+  const region = legalDongRegionByCode.get(code);
+  const selected = Boolean(region && selectedLegalDong === region);
+
+  return {
+    visible: selected,
+    clickable: false,
+    fillColor: region?.color || LEGAL_DONG_COLORS[0],
+    fillOpacity: selected ? 0.34 : 0,
+    strokeColor: "#d94f5c",
+    strokeOpacity: selected ? 0.95 : 0,
+    strokeWeight: selected ? 3 : 0,
+    zIndex: 1
+  };
+}
+
+function updateLegalDongStyles() {
+  map.data.setStyle(getLegalDongStyle);
+}
+
+function selectLegalDong(region, { fitBounds = false } = {}) {
+  selectedLegalDong = region;
+  updateLegalDongStyles();
+  updateSelectedLegalDongBadge();
+  updateSelectedLegalDongLabel();
+
+  if (fitBounds) {
+    map.fitBounds(new naver.maps.LatLngBounds(
+      new naver.maps.LatLng(region.bounds.south, region.bounds.west),
+      new naver.maps.LatLng(region.bounds.north, region.bounds.east)
+    ));
+  }
+}
+
+function selectLegalDongByName(regionName) {
+  const normalizedName = String(regionName || "").trim();
+  const region = legalDongRegions.find(item => item.name === normalizedName);
+  if (!region) return false;
+
+  selectLegalDong(region, { fitBounds: true });
+  return true;
+}
+
+function clearSelectedLegalDong() {
+  if (!selectedLegalDong) return;
+  selectedLegalDong = null;
+  updateLegalDongStyles();
+  updateSelectedLegalDongBadge();
+  updateSelectedLegalDongLabel();
+}
+
+function clearSelectedLegalDongWhenOutOfView() {
+  if (!selectedLegalDong) return;
+
+  const viewport = map.getBounds();
+  const southWest = viewport.getSW();
+  const northEast = viewport.getNE();
+  const region = selectedLegalDong.bounds;
+  const intersects = !(
+    northEast.lat() < region.south ||
+    southWest.lat() > region.north ||
+    northEast.lng() < region.west ||
+    southWest.lng() > region.east
+  );
+
+  if (!intersects) clearSelectedLegalDong();
+}
+
+function updateSelectedLegalDongBadge() {
+  const badge = document.getElementById("selectedLegalDongBadge");
+  const name = document.getElementById("selectedLegalDongName");
+  if (!badge || !name) return;
+
+  badge.hidden = !selectedLegalDong;
+  name.textContent = selectedLegalDong?.fullName || "";
+}
+
+function updateSelectedLegalDongLabel() {
+  if (!selectedLegalDong) {
+    selectedLegalDongLabelMarker?.setMap(null);
+    return;
+  }
+
+  if (!selectedLegalDongLabelMarker) {
+    selectedLegalDongLabelMarker = new naver.maps.Marker({
+      clickable: false,
+      zIndex: 80
+    });
+  }
+
+  selectedLegalDongLabelMarker.setIcon({
+    content: `<div class="selected-legal-dong-map-label">${escapeHtml(selectedLegalDong.name)}</div>`,
+    anchor: new naver.maps.Point(0, 0)
+  });
+  selectedLegalDongLabelMarker.setPosition(new naver.maps.LatLng(
+    selectedLegalDong.labelPoint.lat,
+    selectedLegalDong.labelPoint.lng
+  ));
+  selectedLegalDongLabelMarker.setMap(map);
+}
+
+function updateCurrentLegalDong() {
+  if (!legalDongRegions.length) {
+    currentLegalDong = null;
+    return;
+  }
+
+  const center = map.getCenter();
+  currentLegalDong = legalDongRegions.find(region => (
+    isPointInsideLegalDong(center.lng(), center.lat(), region.coordinates)
+  )) || null;
+}
+
+function isPointInsideLegalDong(lng, lat, polygons) {
+  return polygons.some(polygon => {
+    const [outerRing, ...innerRings] = polygon;
+    return isPointInsideRing(lng, lat, outerRing)
+      && !innerRings.some(ring => isPointInsideRing(lng, lat, ring));
+  });
+}
+
+function isPointInsideRing(lng, lat, ring) {
+  let inside = false;
+
+  for (let current = 0, previous = ring.length - 1; current < ring.length; previous = current++) {
+    const [currentLng, currentLat] = ring[current];
+    const [previousLng, previousLat] = ring[previous];
+    const crossesLatitude = (currentLat > lat) !== (previousLat > lat);
+    if (crossesLatitude) {
+      const intersectionLng = (
+        (previousLng - currentLng) * (lat - currentLat)
+        / (previousLat - currentLat)
+        + currentLng
+      );
+      if (lng < intersectionLng) inside = !inside;
+    }
+  }
+
+  return inside;
+}
+
+function toLegalDongAppState(region) {
+  if (!region) return null;
+  return {
+    type: "legal_dong",
+    code: region.code,
+    name: region.name,
+    full_name: region.fullName,
+    center: region.center,
+    bounds: region.bounds
+  };
+}
+
+function scheduleReverseGeocode() {
+  clearTimeout(reverseGeocodeTimer);
+  reverseGeocodeTimer = setTimeout(updateCurrentMapLocation, REVERSE_GEOCODE_DELAY_MS);
+}
+
+function updateCurrentMapLocation() {
+  if (!naver.maps.Service?.reverseGeocode) return;
+
+  const center = map.getCenter();
+  const cacheKey = getReverseGeocodeCacheKey(center);
+  const cached = reverseGeocodeCache.get(cacheKey);
+
+  if (cached) {
+    currentMapLocation = cached;
+    return;
+  }
+
+  const requestSequence = ++reverseGeocodeRequestSequence;
+  naver.maps.Service.reverseGeocode({ coords: center }, (status, response) => {
+    if (
+      status !== naver.maps.Service.Status.OK ||
+      requestSequence !== reverseGeocodeRequestSequence ||
+      getReverseGeocodeCacheKey(map.getCenter()) !== cacheKey
+    ) return;
+
+    const result = response?.v2;
+    const regionResult = result?.results?.find(item => item?.region);
+    const region = regionResult
+      ? ["area1", "area2", "area3", "area4"]
+          .map(area => regionResult.region?.[area]?.name)
+          .filter(Boolean)
+          .join(" ")
+      : null;
+    const address = result?.address?.roadAddress || result?.address?.jibunAddress || region;
+
+    if (!region && !address) return;
+
+    currentMapLocation = { cacheKey, region, address };
+    reverseGeocodeCache.set(cacheKey, currentMapLocation);
+
+    if (reverseGeocodeCache.size > REVERSE_GEOCODE_CACHE_LIMIT) {
+      reverseGeocodeCache.delete(reverseGeocodeCache.keys().next().value);
+    }
+  });
+}
+
+function getCurrentMapLocation(center) {
+  if (!currentMapLocation) return null;
+  return currentMapLocation.cacheKey === getReverseGeocodeCacheKey(center)
+    ? currentMapLocation
+    : null;
+}
+
+function getReverseGeocodeCacheKey(position) {
+  return `${position.lat().toFixed(4)},${position.lng().toFixed(4)}`;
+}
+
+function renderPropertyMarkerContent(item, highlighted = false) {
+  const highlightClass = highlighted ? " is-ai-highlighted" : "";
+
+  return `
+    <div class="property-marker${highlightClass}">
+      <svg class="property-marker-shape" viewBox="0 0 62 58" aria-hidden="true">
+        <path d="M2 20Q1 18 3 17L28 2Q31 0 34 2L59 17Q61 18 60 20T57 22H56V54Q56 56 54 56H8Q6 56 6 54V22H5Q3 22 2 20Z"></path>
+        <path class="property-marker-roof-highlight" d="M4 17.5 28.5 2.7Q31 1.2 33.5 2.7L58 17.5Q59.5 18.5 58.5 20H3.5Q2.5 18.5 4 17.5Z"></path>
+      </svg>
+      <div class="property-area">${formatAreaPyeong(item.exclusive_area)}</div>
+      <div class="property-marker-price">
+          <span class="deal-type">매</span>
+          <span class="deal-price">${formatPriceToEok(item.sale_price)}</span>
+      </div>
+    </div>
+  `;
+}
+
+async function executeAiMapActions(actions) {
+  if (!Array.isArray(actions)) return;
+
+  const mapActions = actions.filter(action => {
+    if (!action || !["ADD_FAVORITE", "REMOVE_FAVORITE"].includes(action.type)) return true;
+
+    const propertyId = String(action.property_id || "");
+    if (!/^\d+$/.test(propertyId) || propertyId === "0") return false;
+
+    if (action.type === "ADD_FAVORITE") {
+      favoritePropertyIds.add(propertyId);
+    } else {
+      favoritePropertyIds.delete(propertyId);
+    }
+    saveFavoritePropertyIds();
+    syncFavoriteIndicators();
+    return false;
+  });
+
+  if (!mapActions.length) return;
+
+  await Promise.all([propertyDataReady, legalDongDataReady, poiDataReady]);
+
+  const poiCategoriesToLoad = [...new Set(mapActions
+    .filter(action => action?.type === "SET_POI_CATEGORY" && action.enabled === true)
+    .map(action => action.category)
+    .filter(category => POI_CATEGORY_CONFIG[category]))];
+  await Promise.all(poiCategoriesToLoad.map(loadPoiCategory));
+
+  mapActions.forEach(action => {
+    if (!action || typeof action.type !== "string") return;
+
+    if (action.type === "SET_POI_CATEGORY") {
+      if (typeof action.enabled === "boolean") {
+        setPoiCategory(action.category, action.enabled);
+      }
+      return;
+    }
+
+    if (action.type === "CLEAR_POI_HIGHLIGHTS") {
+      highlightedPoiIds.clear();
+      clearAiPoiHighlightMarkers();
+      clearPoiMarkers();
+      scheduleRender();
+      return;
+    }
+
+    if (action.type === "HIGHLIGHT_POIS") {
+      if (!Array.isArray(action.poi_ids) || !action.poi_ids.length || action.poi_ids.length > 20) return;
+      const ids = new Set(action.poi_ids.map(String));
+      const items = allPois.filter(poi => (
+        ids.has(poi.poi_id) && activePoiCategories.has(poi.category)
+      ));
+      if (items.length !== ids.size) return;
+
+      highlightedPoiIds = ids;
+      clearAiPoiHighlightMarkers();
+      clearPoiMarkers();
+      const bounds = map.getBounds();
+      const southWest = bounds.getSW();
+      const northEast = bounds.getNE();
+      const resultsOutsideView = items.some(item => (
+        item.latitude < southWest.lat() || item.latitude > northEast.lat() ||
+        item.longitude < southWest.lng() || item.longitude > northEast.lng()
+      ));
+      if (action.fit_bounds === true || resultsOutsideView || getAppZoomStage(map.getZoom()) <= DONG_STAGE_MAX) {
+        if (items.length === 1) {
+          map.setCenter(new naver.maps.LatLng(items[0].latitude, items[0].longitude));
+          map.setZoom(Math.max(map.getZoom(), APP_MIN_ZOOM + DONG_STAGE_MAX + 1));
+        } else {
+          fitMapToData(items);
+        }
+      }
+      scheduleRender();
+      return;
+    }
+
+    if (action.type === "MOVE_MAP") {
+      const lat = Number(action.lat);
+      const lng = Number(action.lng);
+      const zoomStage = Number(action.zoom);
+      const minStage = getAppZoomStage(APP_MIN_ZOOM);
+      const maxStage = getAppZoomStage(APP_MAX_ZOOM);
+
+      if (
+        Number.isFinite(lat) && lat >= -90 && lat <= 90 &&
+        Number.isFinite(lng) && lng >= -180 && lng <= 180 &&
+        Number.isInteger(zoomStage) && zoomStage >= minStage && zoomStage <= maxStage
+      ) {
+        moveMapTo(
+          new naver.maps.LatLng(lat, lng),
+          getMapZoomFromStage(Math.max(zoomStage, AI_MOVE_MIN_ZOOM_STAGE))
+        );
+      }
+      return;
+    }
+
+    if (action.type === "ZOOM_MAP") {
+      const delta = Number(action.delta);
+      if (!Number.isInteger(delta) || ![-3, -2, -1, 1, 2, 3].includes(delta)) return;
+
+      const targetZoom = Math.min(
+        APP_MAX_ZOOM,
+        Math.max(APP_MIN_ZOOM, map.getZoom() + delta)
+      );
+      moveMapTo(map.getCenter(), targetZoom);
+      return;
+    }
+
+    if (action.type === "FIT_BOUNDS") {
+      const items = getPropertiesForAiAction(action.property_ids);
+      if (items.length) {
+        renderList(items);
+        fitMapToData(items);
+      }
+      return;
+    }
+
+    if (action.type === "HIGHLIGHT_PROPERTIES") {
+      highlightAiProperties(getPropertiesForAiAction(action.property_ids));
+      return;
+    }
+
+    if (action.type === "OPEN_PROPERTY") {
+      openPropertyOnMap(action.property_id);
+      return;
+    }
+
+    if (action.type === "SELECT_REGION") {
+      selectLegalDongByName(action.region_name);
+    }
+  });
+}
+
+function getPropertiesForAiAction(propertyIds) {
+  if (!Array.isArray(propertyIds)) return [];
+
+  const ids = new Set(propertyIds.slice(0, 10).map(String));
+  return allProperties.filter(property => ids.has(property.id));
+}
+
+function highlightAiProperties(items) {
+  clearAiHighlightMarkers();
+
+  const itemsByPosition = new Map();
+  items.forEach(item => {
+    const lat = Number(item?.latitude);
+    const lng = Number(item?.longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+
+    const positionKey = `${lat.toFixed(7)},${lng.toFixed(7)}`;
+    const positionedItems = itemsByPosition.get(positionKey) || [];
+    positionedItems.push(item);
+    itemsByPosition.set(positionKey, positionedItems);
+  });
+
+  itemsByPosition.forEach((positionedItems, positionKey) => {
+    const item = positionedItems[0];
+    const marker = new naver.maps.Marker({
+      position: new naver.maps.LatLng(item.latitude, item.longitude),
+      map,
+      clickable: !distanceMeasureActive,
+      zIndex: 250,
+      icon: {
+        content: renderPropertyMarkerContent(item, true),
+        anchor: new naver.maps.Point(
+          PROPERTY_MARKER_WIDTH / 2,
+          PROPERTY_MARKER_HEIGHT / 2
+        )
+      }
+    });
+
+    naver.maps.Event.addListener(marker, "click", () => {
+      if (!distanceMeasureActive) {
+        renderList(positionedItems, { openMobileList: true });
+      }
+    });
+    aiHighlightMarkerMap.set(positionKey, marker);
+  });
+}
+
+function clearAiHighlightMarkers() {
+  for (const marker of aiHighlightMarkerMap.values()) marker.setMap(null);
+  aiHighlightMarkerMap.clear();
 }
 
 /* ===========================
@@ -1134,7 +2548,7 @@ function getFloorplanImagePath(item) {
 
 function loadFavoritePropertyIds() {
   try {
-    const storedValue = JSON.parse(localStorage.getItem(FAVORITE_PROPERTY_STORAGE_KEY) || "[]");
+    const storedValue = JSON.parse(sessionStorage.getItem(FAVORITE_PROPERTY_STORAGE_KEY) || "[]");
     if (!Array.isArray(storedValue)) return new Set();
 
     return new Set(storedValue.map(id => String(id)));
@@ -1146,7 +2560,7 @@ function loadFavoritePropertyIds() {
 
 function saveFavoritePropertyIds() {
   try {
-    localStorage.setItem(
+    sessionStorage.setItem(
       FAVORITE_PROPERTY_STORAGE_KEY,
       JSON.stringify(Array.from(favoritePropertyIds))
     );
@@ -1204,6 +2618,7 @@ function handleFavoriteStorageChange(event) {
 
 function renderList(items, { openMobileList = false } = {}) {
   showPropertyListView();
+  displayedPropertyIds = items.slice(0, MAX_LIST_ITEMS).map(item => String(item.id));
 
   const list = document.getElementById("propertyList");
   const count = document.getElementById("resultCount");
@@ -1226,6 +2641,7 @@ function renderList(items, { openMobileList = false } = {}) {
     const favoriteClass = isFavoriteProperty(item) ? " is-visible" : "";
     const card = document.createElement("div");
     card.className = "property-card";
+    card.dataset.propertyId = String(item.id);
     card.tabIndex = 0;
     card.setAttribute("role", "button");
     card.setAttribute("aria-label", `${propertyName} 상세정보 보기`);
@@ -1256,29 +2672,7 @@ function renderList(items, { openMobileList = false } = {}) {
     `;
 
     const selectProperty = () => {
-      openPropertyDetail(item);
-
-      if (isMobileMapLayout()) {
-        closeInfoWindow();
-        return;
-      }
-
-      const stage = getAppZoomStage(map.getZoom());
-
-      if (stage <= DONG_STAGE_MAX) {
-        const pos = new naver.maps.LatLng(item.latitude, item.longitude);
-
-        moveMapTo(pos, APP_MAX_ZOOM);
-
-        setTimeout(() => {
-          clearTimeout(renderTimer);
-          render();
-          showPropertyInfo(item);
-        }, 550);
-        return;
-      }
-
-      showPropertyInfo(item);
+      openPropertyOnMap(card.dataset.propertyId, { showInfo: true });
     };
 
     card.addEventListener("click", selectProperty);
@@ -1295,6 +2689,8 @@ function renderList(items, { openMobileList = false } = {}) {
   if (openMobileList) {
     openMobilePropertyList();
   }
+
+  saveMapViewportToHistory();
 }
 
 /* ===========================
@@ -1440,8 +2836,13 @@ function resetDistanceMeasurement({ keepOpen = false } = {}) {
   updateDistanceMeasureUi();
 }
 
-function handleDistanceMeasureClick(event) {
-  addDistanceMeasurePoint(event.coord);
+function handleMapClick(event) {
+  if (distanceMeasureActive) {
+    addDistanceMeasurePoint(event.coord);
+    return;
+  }
+
+  clearSelectedLegalDong();
 }
 
 function setMapMarkersInteractive(interactive) {
@@ -1452,6 +2853,7 @@ function setMapMarkersInteractive(interactive) {
   for (const marker of poiMarkerMap.values()) {
     marker.setClickable(interactive);
   }
+
 }
 
 function addDistanceMeasurePoint(coord) {
@@ -1705,6 +3107,8 @@ function showPropertyListView({ restoreScroll = false } = {}) {
   const detailWasOpen = !detailView.hidden;
 
   selectedProperty = null;
+  syncSelectedPropertyCard(null);
+  clearSelectedPropertyMarker();
   listView.hidden = false;
   detailView.hidden = true;
   sidebar.classList.remove("is-detail-open");
@@ -1716,6 +3120,29 @@ function showPropertyListView({ restoreScroll = false } = {}) {
   } else if (detailWasOpen) {
     sidebar.scrollTop = 0;
   }
+
+  saveMapViewportToHistory();
+}
+
+function openPropertyOnMap(propertyId, { showInfo = false } = {}) {
+  const item = allProperties.find(property => property.id === String(propertyId));
+  if (!item) return false;
+
+  openPropertyDetail(item);
+  moveMapTo(new naver.maps.LatLng(item.latitude, item.longitude), APP_MAX_ZOOM);
+
+  if (showInfo && !isMobileMapLayout()) {
+    setTimeout(() => {
+      if (String(selectedProperty?.id || "") !== String(item.id)) return;
+      clearTimeout(renderTimer);
+      render();
+      showPropertyInfo(item);
+    }, 550);
+  } else if (isMobileMapLayout()) {
+    closeInfoWindow();
+  }
+
+  return true;
 }
 
 function openPropertyDetail(item) {
@@ -1725,15 +3152,56 @@ function openPropertyDetail(item) {
 
   propertyListScrollTop = sidebar.scrollTop;
   selectedProperty = item;
+  syncSelectedPropertyCard(item.id);
+  showSelectedPropertyMarker(item);
   listView.hidden = true;
   detailView.hidden = false;
   sidebar.classList.add("is-detail-open");
   renderPropertyDetail(item);
+  ensurePropertyDetailPoiData(item);
   sidebar.scrollTop = 0;
 
   if (isMobileMapLayout()) {
     setMobileMapView("detail");
   }
+
+  saveMapViewportToHistory();
+}
+
+function syncSelectedPropertyCard(propertyId) {
+  const selectedId = String(propertyId);
+  document.querySelectorAll("#propertyList .property-card[data-property-id]").forEach(card => {
+    card.classList.toggle("is-selected", card.dataset.propertyId === selectedId);
+  });
+}
+
+function showSelectedPropertyMarker(item) {
+  clearSelectedPropertyMarker();
+  if (!item || !Number.isFinite(Number(item.latitude)) || !Number.isFinite(Number(item.longitude))) return;
+
+  selectedPropertyMarker = new naver.maps.Marker({
+    position: new naver.maps.LatLng(item.latitude, item.longitude),
+    map,
+    clickable: !distanceMeasureActive,
+    zIndex: 300,
+    icon: {
+      content: renderPropertyMarkerContent(item, true),
+      anchor: new naver.maps.Point(
+        PROPERTY_MARKER_WIDTH / 2,
+        PROPERTY_MARKER_HEIGHT / 2
+      )
+    }
+  });
+
+  naver.maps.Event.addListener(selectedPropertyMarker, "click", () => {
+    if (!distanceMeasureActive) renderList([item], { openMobileList: true });
+  });
+}
+
+function clearSelectedPropertyMarker() {
+  if (!selectedPropertyMarker) return;
+  selectedPropertyMarker.setMap(null);
+  selectedPropertyMarker = null;
 }
 
 function renderPropertyDetail(item) {
@@ -1751,11 +3219,15 @@ function renderPropertyDetail(item) {
   const samePyeongSaleItems = samePyeongItems.filter(candidate => candidate.sale_price > 0);
   const complexAveragePrice = getAverageValue(complexSaleItems, "sale_price");
   const samePyeongAveragePrice = getAverageValue(samePyeongSaleItems, "sale_price");
+  const recentThreeMonthItems = getRecentTransactions(samePyeongSaleItems, 3);
+  const recentThreeMonthAveragePrice = getAverageValue(recentThreeMonthItems, "sale_price");
+  const latestTransaction = getLatestTransaction(samePyeongSaleItems);
   const availableAreas = getComplexAreaSummary(sameComplexItems);
   const proximity = getPropertyProximity(item);
   const propertyName = item.title || item.building_name || "매물";
   const detailArea = formatDetailArea(item.exclusive_area);
 
+  content.dataset.propertyId = String(item.id);
   content.innerHTML = `
     <div class="property-detail-media" aria-label="매물 이미지 영역">
       ${renderPropertyMediaSlot(item, propertyName)}
@@ -1791,7 +3263,7 @@ function renderPropertyDetail(item) {
     </section>
 
     <section class="property-detail-section">
-      ${renderDetailSectionHeading("가격 정보", "현재 등록 매물 기준")}
+      ${renderDetailSectionHeading("가격 정보", "최근 12개월 실거래 기준")}
       <div class="property-price-grid">
         ${renderPriceCard(
           `같은 단지 평균 (${complexSaleItems.length.toLocaleString()}건)`,
@@ -1802,8 +3274,37 @@ function renderPropertyDetail(item) {
           `같은 평수 평균 (${samePyeongSaleItems.length.toLocaleString()}건)`,
           formatOptionalPrice(samePyeongAveragePrice)
         )}
-        ${renderPriceCard("평균 실거래가", "")}
-        ${renderPriceCard("최근 실거래가", "")}
+        ${renderPriceCard(
+          `최근 3개월 평균 (${recentThreeMonthItems.length.toLocaleString()}건)`,
+          formatOptionalPrice(recentThreeMonthAveragePrice)
+        )}
+        ${renderPriceCard(
+          latestTransaction
+            ? `최근 실거래가 (${formatContractDate(latestTransaction.contract_date)})`
+            : "최근 실거래가",
+          formatOptionalPrice(latestTransaction?.sale_price)
+        )}
+      </div>
+    </section>
+
+    <section class="property-detail-section property-price-history-section"
+             data-price-history-property-id="${escapeHtml(item.id)}">
+      <div class="property-price-history-heading">
+        <div>
+          <h3>매매가 평균 추이</h3>
+          <p>같은 단지 · 같은 평형 월별 실거래</p>
+        </div>
+        <div class="property-price-history-period" aria-label="조회 기간">
+          <button type="button" data-price-history-years="1">1년</button>
+          <button type="button" class="is-active" data-price-history-years="3">3년</button>
+        </div>
+      </div>
+      <div class="property-price-history-legend" aria-hidden="true">
+        <span class="price"><i></i>매매가</span>
+        <span class="volume"><i></i>거래량</span>
+      </div>
+      <div class="property-price-history-chart" role="img" aria-label="매매가 평균과 거래량 추이">
+        <p class="property-price-history-status">가격 추이를 불러오고 있어요.</p>
       </div>
     </section>
 
@@ -1831,20 +3332,15 @@ function renderPropertyDetail(item) {
 
     <section class="property-detail-section">
       ${renderDetailSectionHeading("주변시설", "직선거리 기준")}
-      <div class="property-facility-list">
-        ${renderFacilityItem("교통", "교통", "transport", proximity.facilities["교통"])}
-        ${renderFacilityItem("의료", "의료", "medical", proximity.facilities["의료"])}
-        ${renderFacilityItem("공공", "공공기관", "public", proximity.facilities["공공기관"])}
-        ${renderFacilityItem("중개", "중개", "brokerage", proximity.facilities["중개"])}
+      <div class="property-facility-list" data-property-proximity-facilities>
+        ${renderPropertyFacilityItems(proximity)}
       </div>
     </section>
 
     <section class="property-detail-section">
       ${renderDetailSectionHeading("주변 학교", "거리 기준 · 배정학군 정보 아님")}
-      <div class="property-school-list">
-        ${renderSchoolItem("초", "초등학교", proximity.schools.elementary)}
-        ${renderSchoolItem("중", "중학교", proximity.schools.middle)}
-        ${renderSchoolItem("고", "고등학교", proximity.schools.high)}
+      <div class="property-school-list" data-property-proximity-schools>
+        ${renderPropertySchoolItems(proximity)}
       </div>
     </section>
 
@@ -1853,6 +3349,34 @@ function renderPropertyDetail(item) {
       <div class="property-detail-description-slot">${escapeHtml(item.description || "")}</div>
     </section>
   `;
+
+  initializePropertyPriceHistory(item.id);
+}
+
+async function ensurePropertyDetailPoiData(item) {
+  const propertyId = String(item.id);
+  const categoriesToLoad = PROPERTY_DETAIL_POI_CATEGORIES.filter(
+    category => !loadedPoiCategories.has(category)
+  );
+  if (!categoriesToLoad.length) return;
+
+  await Promise.all(categoriesToLoad.map(loadPoiCategory));
+  if (String(selectedProperty?.id || "") !== propertyId) return;
+
+  renderPropertyProximity(item);
+}
+
+function renderPropertyProximity(item) {
+  const content = document.getElementById("propertyDetailContent");
+  if (!content || content.dataset.propertyId !== String(item.id)) return;
+
+  const facilities = content.querySelector("[data-property-proximity-facilities]");
+  const schools = content.querySelector("[data-property-proximity-schools]");
+  if (!facilities || !schools) return;
+
+  const proximity = getPropertyProximity(item);
+  facilities.innerHTML = renderPropertyFacilityItems(proximity);
+  schools.innerHTML = renderPropertySchoolItems(proximity);
 }
 
 function renderPropertyMediaSlot(item, propertyName) {
@@ -1921,6 +3445,161 @@ function renderPriceCard(label, value, primary = false) {
   `;
 }
 
+function initializePropertyPriceHistory(propertyId) {
+  const section = document.querySelector("[data-price-history-property-id]");
+  if (!section || String(section.dataset.priceHistoryPropertyId) !== String(propertyId)) return;
+
+  section.querySelectorAll("[data-price-history-years]").forEach(button => {
+    button.addEventListener("click", () => {
+      const years = Number(button.dataset.priceHistoryYears);
+      section.querySelectorAll("[data-price-history-years]").forEach(candidate => {
+        candidate.classList.toggle("is-active", candidate === button);
+      });
+      loadPropertyPriceHistory(propertyId, years);
+    });
+  });
+
+  loadPropertyPriceHistory(propertyId, 3);
+}
+
+async function loadPropertyPriceHistory(propertyId, years) {
+  const cacheKey = `${propertyId}:${years}`;
+  const chart = getActivePriceHistoryChart(propertyId);
+  if (!chart) return;
+
+  chart.innerHTML = '<p class="property-price-history-status">가격 추이를 불러오고 있어요.</p>';
+
+  try {
+    let rows = propertyPriceHistoryCache.get(cacheKey);
+    if (!rows) {
+      const response = await fetch(
+        `/api/map/properties/${encodeURIComponent(propertyId)}/price-history?years=${years}`
+      );
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      rows = await response.json();
+      propertyPriceHistoryCache.set(cacheKey, rows);
+    }
+
+    const activeChart = getActivePriceHistoryChart(propertyId);
+    if (!activeChart) return;
+    renderPropertyPriceHistoryChart(activeChart, rows, years);
+  } catch (error) {
+    console.error("매매가 추이를 불러오지 못했습니다:", error);
+    const activeChart = getActivePriceHistoryChart(propertyId);
+    if (activeChart) {
+      activeChart.innerHTML = '<p class="property-price-history-status is-error">가격 추이를 불러오지 못했어요.</p>';
+    }
+  }
+}
+
+function getActivePriceHistoryChart(propertyId) {
+  const section = document.querySelector("[data-price-history-property-id]");
+  if (!section || String(section.dataset.priceHistoryPropertyId) !== String(propertyId)) return null;
+  return section.querySelector(".property-price-history-chart");
+}
+
+function renderPropertyPriceHistoryChart(container, rows, years) {
+  const series = buildMonthlyPriceHistory(rows, years);
+  const tradedMonths = series.filter(item => item.averagePrice > 0);
+
+  if (!tradedMonths.length) {
+    container.innerHTML = '<p class="property-price-history-status">해당 기간의 실거래 내역이 없어요.</p>';
+    return;
+  }
+
+  const width = 380;
+  const height = 240;
+  const left = 48;
+  const right = 12;
+  const top = 12;
+  const priceBottom = 158;
+  const volumeTop = 174;
+  const volumeBottom = 205;
+  const plotWidth = width - left - right;
+  const prices = tradedMonths.map(item => item.averagePrice);
+  const rawMin = Math.min(...prices);
+  const rawMax = Math.max(...prices);
+  const padding = Math.max((rawMax - rawMin) * 0.12, rawMax * 0.03, 1);
+  const minPrice = Math.max(0, rawMin - padding);
+  const maxPrice = rawMax + padding;
+  const maxTrades = Math.max(...series.map(item => item.tradeCount), 1);
+  const x = index => left + (series.length === 1 ? plotWidth / 2 : index * plotWidth / (series.length - 1));
+  const y = price => top + (maxPrice - price) / (maxPrice - minPrice || 1) * (priceBottom - top);
+  const grid = Array.from({ length: 4 }, (_, index) => {
+    const ratio = index / 3;
+    const gridY = top + ratio * (priceBottom - top);
+    const value = maxPrice - ratio * (maxPrice - minPrice);
+    return `<line x1="${left}" y1="${gridY}" x2="${width - right}" y2="${gridY}"/>`
+      + `<text x="${left - 7}" y="${gridY + 4}" text-anchor="end">${escapeHtml(formatChartPrice(value))}</text>`;
+  }).join("");
+  const linePoints = series
+    .map((item, index) => item.averagePrice > 0 ? `${x(index)},${y(item.averagePrice)}` : null)
+    .filter(Boolean)
+    .join(" ");
+  const bars = series.map((item, index) => {
+    if (!item.tradeCount) return "";
+    const barHeight = Math.max(3, item.tradeCount / maxTrades * (volumeBottom - volumeTop));
+    return `<rect x="${x(index) - 2}" y="${volumeBottom - barHeight}" width="4" height="${barHeight}" rx="2">`
+      + `<title>${escapeHtml(formatHistoryTooltip(item))}</title></rect>`;
+  }).join("");
+  const points = series.map((item, index) => {
+    if (!item.averagePrice) return "";
+    return `<circle cx="${x(index)}" cy="${y(item.averagePrice)}" r="4">`
+      + `<title>${escapeHtml(formatHistoryTooltip(item))}</title></circle>`;
+  }).join("");
+  const tickIndexes = [...new Set([0, ...Array.from({ length: 3 }, (_, index) => (
+    Math.round((index + 1) * (series.length - 1) / 4)
+  )), series.length - 1])];
+  const labels = tickIndexes.map(index => (
+    `<text x="${x(index)}" y="228" text-anchor="middle">${escapeHtml(formatHistoryMonth(series[index].month))}</text>`
+  )).join("");
+
+  container.innerHTML = `
+    <svg viewBox="0 0 ${width} ${height}" aria-hidden="true">
+      <g class="property-price-history-grid">${grid}</g>
+      <text class="property-price-history-volume-label" x="${left - 7}" y="${volumeTop + 5}" text-anchor="end">거래량</text>
+      <g class="property-price-history-bars">${bars}</g>
+      <polyline class="property-price-history-line" points="${linePoints}"/>
+      <g class="property-price-history-points">${points}</g>
+      <g class="property-price-history-labels">${labels}</g>
+    </svg>
+  `;
+}
+
+function buildMonthlyPriceHistory(rows, years) {
+  const byMonth = new Map((Array.isArray(rows) ? rows : []).map(row => [
+    String(row.month || ""),
+    {
+      averagePrice: Number(row.average_price || 0),
+      tradeCount: Number(row.trade_count || 0)
+    }
+  ]));
+  const monthCount = years * 12;
+  const current = new Date();
+  const start = new Date(current.getFullYear(), current.getMonth() - monthCount + 1, 1);
+
+  return Array.from({ length: monthCount }, (_, index) => {
+    const date = new Date(start.getFullYear(), start.getMonth() + index, 1);
+    const month = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+    const value = byMonth.get(month) || {};
+    return { month, averagePrice: value.averagePrice || 0, tradeCount: value.tradeCount || 0 };
+  });
+}
+
+function formatHistoryTooltip(item) {
+  return `${formatHistoryMonth(item.month)}  평균 ${formatOptionalPrice(item.averagePrice) || "-"}  거래 ${item.tradeCount.toLocaleString()}건`;
+}
+
+function formatHistoryMonth(month) {
+  const [year, value] = String(month).split("-");
+  return `${String(year).slice(-2)}.${value}`;
+}
+
+function formatChartPrice(price) {
+  const eok = Number(price) / 100000000;
+  return `${Number(eok.toFixed(eok >= 10 ? 0 : 1))}억`;
+}
+
 function renderDetailText(value) {
   const normalized = String(value ?? "").trim();
 
@@ -1945,6 +3624,15 @@ function renderFacilityItem(shortLabel, category, className, nearest) {
   `;
 }
 
+function renderPropertyFacilityItems(proximity) {
+  return [
+    renderFacilityItem("교통", "교통", "transport", proximity.facilities["교통"]),
+    renderFacilityItem("의료", "의료", "medical", proximity.facilities["의료"]),
+    renderFacilityItem("공공", "공공기관", "public", proximity.facilities["공공기관"]),
+    renderFacilityItem("중개", "중개", "brokerage", proximity.facilities["중개"])
+  ].join("");
+}
+
 function renderSchoolItem(shortLabel, label, nearest) {
   const name = nearest?.item?.name || "";
   const distance = nearest ? formatDistance(nearest.distance) : "";
@@ -1959,6 +3647,14 @@ function renderSchoolItem(shortLabel, label, nearest) {
       <span class="property-school-distance">${distance ? escapeHtml(distance) : renderDetailText("")}</span>
     </div>
   `;
+}
+
+function renderPropertySchoolItems(proximity) {
+  return [
+    renderSchoolItem("초", "초등학교", proximity.schools.elementary),
+    renderSchoolItem("중", "중학교", proximity.schools.middle),
+    renderSchoolItem("고", "고등학교", proximity.schools.high)
+  ].join("");
 }
 
 function getSameComplexProperties(item) {
@@ -2009,12 +3705,53 @@ function getAverageValue(items, key) {
   return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
-function getRoundedPyeong(area) {
+function getRecentTransactions(items, months) {
+  const cutoff = new Date();
+  cutoff.setHours(0, 0, 0, 0);
+  cutoff.setMonth(cutoff.getMonth() - months);
+
+  return items.filter(item => {
+    const contractDate = parseContractDate(item.contract_date);
+    return contractDate && contractDate >= cutoff;
+  });
+}
+
+function getLatestTransaction(items) {
+  return items.reduce((latest, item) => {
+    const itemDate = parseContractDate(item.contract_date);
+    if (!itemDate) return latest;
+
+    const latestDate = parseContractDate(latest?.contract_date);
+    return !latestDate || itemDate > latestDate ? item : latest;
+  }, null);
+}
+
+function parseContractDate(value) {
+  const normalized = String(value ?? "").trim();
+  if (!normalized) return null;
+
+  const date = new Date(`${normalized.slice(0, 10)}T00:00:00`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function formatContractDate(value) {
+  const date = parseContractDate(value);
+  if (!date) return "";
+
+  return `${date.getFullYear()}.${String(date.getMonth() + 1).padStart(2, "0")}.${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function getAreaPyeong(area) {
   const numericArea = Number(area);
 
   return Number.isFinite(numericArea) && numericArea > 0
-    ? Math.round(numericArea / 3.3058)
+    ? numericArea / 3.3058
     : null;
+}
+
+function getRoundedPyeong(area) {
+  const pyeong = getAreaPyeong(area);
+  return pyeong === null ? null : Math.round(pyeong);
 }
 
 function formatDetailArea(area) {
@@ -2059,9 +3796,16 @@ function getPropertyProximity(item) {
   };
   const latitude = Number(item.latitude);
   const longitude = Number(item.longitude);
+  const propertyId = String(item.id);
+  const canUseCache = PROPERTY_DETAIL_POI_CATEGORIES.every(
+    category => loadedPoiCategories.has(category)
+  );
 
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
     return result;
+  }
+  if (canUseCache && propertyProximityCache.has(propertyId)) {
+    return propertyProximityCache.get(propertyId);
   }
 
   allPois.forEach(poi => {
@@ -2098,6 +3842,7 @@ function getPropertyProximity(item) {
     }
   });
 
+  if (canUseCache) propertyProximityCache.set(propertyId, result);
   return result;
 }
 
@@ -2367,7 +4112,11 @@ function closeAllInfoPopups() {
 =========================== */
 
 function getAppZoomStage(zoom) {
-  return zoom - APP_START_ZOOM + 1;
+  return zoom - APP_MIN_ZOOM;
+}
+
+function getMapZoomFromStage(stage) {
+  return stage + APP_MIN_ZOOM;
 }
 
 function moveMapTo(position, zoom) {
@@ -2405,6 +4154,13 @@ function removeUnusedMarkers(nextKeys) {
   }
 }
 
+function clearPropertyMarkers() {
+  for (const marker of markerMap.values()) {
+    marker.setMap(null);
+  }
+  markerMap.clear();
+}
+
 function removeUnusedPoiMarkers(nextKeys) {
   for (const [key, marker] of poiMarkerMap.entries()) {
     if (!nextKeys.has(key)) {
@@ -2420,6 +4176,46 @@ function clearPoiMarkers() {
   }
 
   poiMarkerMap.clear();
+}
+
+function clearAiPoiHighlightMarkers() {
+  for (const marker of aiPoiHighlightMarkerMap.values()) {
+    marker.setMap(null);
+  }
+  aiPoiHighlightMarkerMap.clear();
+}
+
+function renderAiPoiHighlightMarkers() {
+  clearAiPoiHighlightMarkers();
+  if (!highlightedPoiIds.size) return;
+
+  const groups = new Map();
+  allPois.forEach(poi => {
+    if (!highlightedPoiIds.has(poi.poi_id) || !activePoiCategories.has(poi.category)) return;
+    const key = `${poi.category}|${poi.latitude}|${poi.longitude}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(poi);
+  });
+
+  groups.forEach((items, key) => {
+    const poi = items[0];
+    const config = getPoiMarkerConfig(poi.category, getPoiVariant(poi));
+    const position = new naver.maps.LatLng(poi.latitude, poi.longitude);
+    const marker = new naver.maps.Marker({
+      position,
+      map,
+      clickable: !distanceMeasureActive,
+      zIndex: 260,
+      icon: {
+        content: renderPoiMarkerContent(poi.category, config, poi.name || config.label, items.length, true),
+        anchor: getPoiMarkerAnchor(poi.category)
+      }
+    });
+    naver.maps.Event.addListener(marker, "click", () => {
+      if (!distanceMeasureActive) openPoiInfoPopup(items, position);
+    });
+    aiPoiHighlightMarkerMap.set(key, marker);
+  });
 }
 
 function fitMapToData(items) {
@@ -2510,9 +4306,8 @@ function formatPriceToEok(price) {
 }
 
 function formatAreaPyeong(area) {
-  if (!area || isNaN(area)) return "-평";
-
-  const pyeong = area / 3.3058;
+  const pyeong = getAreaPyeong(area);
+  if (pyeong === null) return "-평";
   return `${Math.round(pyeong)}평`;
 }
 

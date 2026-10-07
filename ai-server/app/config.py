@@ -1,0 +1,72 @@
+import json
+import os
+import re
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+load_dotenv(PROJECT_ROOT / ".env")
+
+
+def search_diagnostics_enabled() -> bool:
+    return os.getenv("AI_SEARCH_DIAGNOSTICS", "").strip().lower() in {"1", "true"}
+
+
+def safe_search_log(value: object) -> str:
+    rendered = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, default=str)
+    for name in ("OPENAI_API_KEY", "DB_PASSWORD", "LAW_API_OC", "SUPABASE_SERVICE_KEY", "NAVER_MAPS_CLIENT_KEY", "INTERNAL_API_KEY"):
+        secret = os.getenv(name, "")
+        if secret:
+            rendered = rendered.replace(secret, "[REDACTED]")
+        rendered = re.sub(
+            rf'(?i)("?{name}"?\s*[:=]\s*"?)([^\s",}}]+)',
+            r'\1[REDACTED]',
+            rendered,
+        )
+    rendered = re.sub(r'\bsk-[A-Za-z0-9_-]{12,}\b', "[REDACTED]", rendered)
+    return rendered
+
+
+def get_openai_api_key() -> str:
+    return os.getenv("OPENAI_API_KEY", "").strip()
+
+
+def get_law_api_oc() -> str:
+    return os.getenv("LAW_API_OC", "").strip()
+
+
+def get_law_vector_store_id() -> str:
+    return os.getenv("LAW_VECTOR_STORE_ID", "").strip()
+
+
+def get_openai_model() -> str:
+    return os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip() or "gpt-4o-mini"
+
+
+def get_openai_exam_evaluation_model() -> str:
+    return (
+        os.getenv("OPENAI_EXAM_EVALUATION_MODEL", "gpt-4o-mini").strip()
+        or "gpt-4o-mini"
+    )
+
+
+def get_spring_server_base_url() -> str:
+    return (
+        os.getenv("SPRING_SERVER_BASE_URL", "http://localhost:8080").strip()
+        or "http://localhost:8080"
+    )
+
+
+def get_internal_api_key() -> str:
+    return os.getenv("INTERNAL_API_KEY", "").strip()
+
+
+def api_docs_enabled() -> bool:
+    return os.getenv("ENABLE_API_DOCS", "true").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
