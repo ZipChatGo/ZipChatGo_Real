@@ -5,6 +5,9 @@
 [![Demo](https://img.shields.io/badge/Demo-Production-222222?logo=github)](https://zipchatgo-spring.onrender.com)
 [![Frontend](https://img.shields.io/badge/Frontend-HTML%20%7C%20CSS%20%7C%20JavaScript-FF600D)](#5-기술-스택)
 
+[![Demo](https://img.shields.io/badge/Demo-Render-222222?logo=render)](https://zipchatgo-spring.onrender.com)
+[![Production](https://img.shields.io/badge/Production-AWS%20EC2-232F3E?logo=amazonaws)](https://zipchatgo.duckdns.org/)
+[![Frontend](https://img.shields.io/badge/Frontend-HTML%20%7C%20CSS%20%7C%20JavaScript-FF600D)](#5-기술-스택)
 > **현재 구현 안내:** 아래 기존 README 본문에는 초기 정적 데모 시점의 설명이 포함되어 있습니다. 현재 저장소의 Spring Boot·FastAPI·DB 기반 구현과 구분해서 읽어 주세요. 현재 구현 기준의 기능·한계는 [프로젝트 문서 홈](docs/project/README.md)에서 확인할 수 있습니다. 상단 Demo 링크는 Render 운영주소로 연결됩니다.
 
 ## 📚 프로젝트 산출물
