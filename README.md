@@ -2,10 +2,10 @@
 
 > AI 대화형 추천과 부동산 시장 데이터를 바탕으로, 사용자의 주거 조건에 맞는 지역과 매물을 탐색·비교할 수 있도록 만든 부동산 웹 서비스 프로젝트입니다.
 
-[![Demo](https://img.shields.io/badge/Demo-GitHub%20Pages-222222?logo=github)](https://kakaru-rgb.github.io/Zip-chatGo/)
+[![Demo](https://img.shields.io/badge/Demo-Production-222222?logo=github)](https://zipchatgo-spring.onrender.com)
 [![Frontend](https://img.shields.io/badge/Frontend-HTML%20%7C%20CSS%20%7C%20JavaScript-FF600D)](#5-기술-스택)
 
-> **현재 구현 안내:** 아래 기존 README 본문에는 초기 정적 데모 시점의 설명이 포함되어 있습니다. 현재 저장소의 Spring Boot·FastAPI·DB 기반 구현과 구분해서 읽어 주세요. 현재 구현 기준의 기능·한계는 [프로젝트 문서 홈](docs/project/README.md)에서 확인할 수 있습니다. 상단 Demo 링크는 별도 정적 데모이며 현재 서버의 운영 상태를 보증하지 않습니다.
+> **현재 구현 안내:** 아래 기존 README 본문에는 초기 정적 데모 시점의 설명이 포함되어 있습니다. 현재 저장소의 Spring Boot·FastAPI·DB 기반 구현과 구분해서 읽어 주세요. 현재 구현 기준의 기능·한계는 [프로젝트 문서 홈](docs/project/README.md)에서 확인할 수 있습니다. 상단 Demo 링크는 Render 운영주소로 연결됩니다.
 
 ## 📚 프로젝트 산출물
 
@@ -36,7 +36,9 @@
 
 **집찾GO (Zip-chatGo)**
 
-- **Demo URL**: [https://kakaru-rgb.github.io/Zip-chatGo/](https://kakaru-rgb.github.io/Zip-chatGo/)
+- **운영 Demo**
+  - [Render](https://zipchatgo-spring.onrender.com)
+  - [AWS EC2](https://zipchatgo.duckdns.org/)
 - **시연 방법**: 웹 브라우저 접속 후 로그인 화면에서 하단의 '게스트로 체험하기'를 클릭하여 게스트 계정으로 주요 기능을 확인하실 수 있습니다.
 - **주요 범위**: AI 집 찾기, 지도 기반 매물 탐색, 시장동향 분석, 관심목록, 매물 등록, 회원 및 고객지원 UI
 
