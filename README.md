@@ -5,6 +5,33 @@
 [![Demo](https://img.shields.io/badge/Demo-GitHub%20Pages-222222?logo=github)](https://kakaru-rgb.github.io/Zip-chatGo/)
 [![Frontend](https://img.shields.io/badge/Frontend-HTML%20%7C%20CSS%20%7C%20JavaScript-FF600D)](#5-기술-스택)
 
+> **현재 구현 안내:** 아래 기존 README 본문에는 초기 정적 데모 시점의 설명이 포함되어 있습니다. 현재 저장소의 Spring Boot·FastAPI·DB 기반 구현과 구분해서 읽어 주세요. 현재 구현 기준의 기능·한계는 [프로젝트 문서 홈](docs/project/README.md)에서 확인할 수 있습니다. 상단 Demo 링크는 별도 정적 데모이며 현재 서버의 운영 상태를 보증하지 않습니다.
+
+## 📚 프로젝트 산출물
+
+| 순서 | 문서 | 읽을 내용 |
+|---|---|---|
+| 1 | [플로 차트](docs/project/01_flowchart.md) | 사용자·지도·AI·법률·등록 흐름 |
+| 2 | [프로젝트 기획서](docs/project/02_project_plan.md) | 문제, 목표, 대상 사용자와 범위 |
+| 3 | [요구사항 정의서](docs/project/03_requirements.md) | 기능·비기능 요구사항과 구현 상태 |
+| 4 | [프로세스 정의서](docs/project/04_process_definition.md) | 주요 업무의 입력, 처리, 예외와 API |
+| 5 | [시스템 아키텍처 설계서](docs/project/05_system_architecture.md) | 서버·AI·외부 시스템·저장소 관계 |
+| 6 | [화면 설계서](docs/project/06_screen_design.md) | 현재 화면의 URL, UI와 동작 |
+
+[문서 홈에서 순서대로 읽기](docs/project/README.md)
+
+## 🧭 서비스 한눈에 보기
+
+현재 서버 기준의 기본 흐름은 **홈 → 지도와 AI 대화 → 매물·주변시설 탐색 → 관심매물 → 시장 분석**입니다. 로그인한 회원은 매물을 등록하고 내 매물을 관리할 수 있으며 관리자는 등록 매물을 심사합니다. [전체 사용자 흐름](docs/project/01_flowchart.md)과 [화면별 안내](docs/project/06_screen_design.md)를 참고하세요.
+
+## 🏗 시스템 구조
+
+브라우저의 일반 요청은 Spring Boot로, AI 요청은 Spring Boot를 거쳐 FastAPI와 OpenAI로 전달됩니다. FastAPI의 매물·POI 조회는 Spring API를 사용합니다. [시스템 아키텍처 설계서](docs/project/05_system_architecture.md)에 데이터 저장 위치와 외부 연동을 함께 정리했습니다.
+
+## 🖥 주요 화면
+
+[홈](docs/project/06_screen_design.md#scr-001-홈), [지도와 AI 채팅](docs/project/06_screen_design.md#scr-005-지도-탐색), [부동산 분석](docs/project/06_screen_design.md#scr-009-부동산-분석-허브), [매물 등록](docs/project/06_screen_design.md#scr-012-매물-등록), [고객센터](docs/project/06_screen_design.md#scr-015-고객센터)를 화면 설계서에서 이어서 볼 수 있습니다.
+
 ## 1. 프로젝트명
 
 **집찾GO (Zip-chatGo)**
@@ -154,7 +181,7 @@ Zip-chatGo/
 ## 10. 사용자 동선
 
 사용자가 서비스를 이용하며 거치는 핵심 흐름입니다.
-![사용자 동선](./사용자동선.png)
+[현재 구현 기준 사용자 흐름 플로 차트](docs/project/01_flowchart.md)
 
 ```text
 메인 페이지
